@@ -786,6 +786,7 @@ protected:
   friend class RemoveTextureFromCompositableTracker;
   friend void TestTextureClientSurface(TextureClient*, gfxImageSurface*);
   friend void TestTextureClientYCbCr(TextureClient*, PlanarYCbCrData&);
+  friend already_AddRefed<TextureHost> CreateTestTextureHost(TextureClient*, LayersBackend&);
 
 #ifdef GFX_DEBUG_TRACK_CLIENTS_IN_POOL
 public:
