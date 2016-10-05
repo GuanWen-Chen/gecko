@@ -1147,11 +1147,11 @@ DXGIYCbCrTextureHostD3D9::GetCompositor()
 bool
 DXGIYCbCrTextureHostD3D9::Lock()
 {
-  if (!mCompositor) {
+/*  if (!mCompositor) {
     NS_WARNING("no suitable compositor");
     return false;
   }
-
+*/
   if (!GetDevice()) {
     NS_WARNING("trying to lock a TextureHost without a D3D device");
     return false;
