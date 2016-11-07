@@ -141,6 +141,7 @@ enum class ForcedDeviceResetReason
 {
   OPENSHAREDHANDLE = 0,
   COMPOSITOR_UPDATED,
+  CONTENT_FAILED,
 };
 
 class gfxPlatform {

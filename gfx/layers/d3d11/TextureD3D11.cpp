@@ -1201,7 +1201,7 @@ SyncObjectD3D11::SyncObjectD3D11(SyncHandle aSyncHandle)
 }
 
 bool
-SyncObjectD3D11::Init()
+SyncObjectD3D11::Init(CompositorBridgeChild* aChild)
 {
   if (mKeyedMutex) {
     return true;
@@ -1218,7 +1218,11 @@ SyncObjectD3D11::Init()
     if (!CompositorBridgeChild::CompositorIsInGPUProcess() &&
         !DeviceManagerDx::Get()->HasDeviceReset())
     {
-      gfxDevCrash(LogReason::D3D11FinalizeFrame) << "Without device reset: " << hexa(hr);
+      gfxCriticalError() << "Without device reset: " << hexa(hr);
+      if (aChild && aChild->SendResetDevice(gfxConfig::IsEnabled(Feature::D3D11_COMPOSITING))) {
+        gfxWindowsPlatform::GetPlatform()->ForceDeviceReset(
+          ForcedDeviceResetReason::CONTENT_FAILED);
+      }
     }
   }
 
@@ -1240,12 +1244,12 @@ SyncObjectD3D11::RegisterTexture(ID3D11Texture2D* aTexture)
 }
 
 void
-SyncObjectD3D11::FinalizeFrame()
+SyncObjectD3D11::FinalizeFrame(CompositorBridgeChild* aChild)
 {
   if (!mD3D11SyncedTextures.size()) {
     return;
   }
-  if (!Init()) {
+  if (!Init(aChild)) {
     return;
   }
 

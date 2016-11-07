@@ -120,6 +120,7 @@ public:
   virtual ShmemAllocator* AsShmemAllocator() override { return this; }
 
   virtual mozilla::ipc::IPCResult RecvSyncWithCompositor() override { return IPC_OK(); }
+  virtual bool RecvResetDevice(bool aD3D11Config) override;
 
   // HostIPCAllocator
   virtual base::ProcessId GetChildProcessId() override;

@@ -1520,6 +1520,14 @@ gfxWindowsPlatform::InitializeD3D11()
   }
 
   dm->CreateContentDevices();
+
+  // Content process failed to create the d3d11 device while parent process
+  // succeed, we should reset the device again in this case.
+  if (XRE_IsContentProcess() &&
+      !gfxConfig::IsEnabled(Feature::D3D11_COMPOSITING)) {
+    gfxWindowsPlatform::GetPlatform()->ForceDeviceReset(
+      ForcedDeviceResetReason::CONTENT_FAILED);
+  }
 }
 
 void

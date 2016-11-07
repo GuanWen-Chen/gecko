@@ -106,6 +106,25 @@ CompositorBridgeParentBase::GetChildProcessId()
   return OtherPid();
 }
 
+bool
+CompositorBridgeParentBase::RecvResetDevice(bool aD3D11Config)
+{
+#ifdef XP_WIN
+  FeatureState& d3d11 = gfxConfig::GetFeature(Feature::D3D11_COMPOSITING);
+  if (!gfxPlatform::GetPlatform()->DidRenderingDeviceReset() ||
+      d3d11.isEnable() == aD3D11Config == false) {
+    if (aD3D11Config == false) {
+      d3d11.SetFailed(FeatureStatus::Disabled, "D3D11 is disabled by Content",
+                    NS_LITERAL_CSTRING("FEATURE_FORCE_DISABLE"));
+    }
+    gfxWindowsPlatform::GetPlatform()->ForceDeviceReset(
+      ForcedDeviceResetReason::CONTENT_FAILED);
+  }
+#endif
+  return true;
+}
+
+
 void
 CompositorBridgeParentBase::NotifyNotUsed(PTextureParent* aTexture, uint64_t aTransactionId)
 {

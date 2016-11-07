@@ -231,6 +231,8 @@ parent:
 
   sync SyncWithCompositor();
 
+  async ResetDevice(bool aD3D11Config);
+
 child:
   // Send back Compositor Frame Metrics from APZCs so tiled layers can
   // update progressively.
