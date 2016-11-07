@@ -742,6 +742,17 @@ CompositorBridgeChild::CancelNotifyAfterRemotePaint(TabChild* aTabChild)
 }
 
 bool
+CompositorBridgeChild::SendDeviceReset()
+{
+  MOZ_RELEASE_ASSERT(mCanSend);
+#ifdef XP_WIN
+  gfxWindowsPlatform::GetPlatform()->ForceDeviceReset(
+    ForcedDeviceResetReason::OPENSHAREDHANDLE);
+#endif
+  return PCompositorBridgeChild::SendResetDevice();
+}
+
+bool
 CompositorBridgeChild::SendWillClose()
 {
   MOZ_RELEASE_ASSERT(mCanSend);

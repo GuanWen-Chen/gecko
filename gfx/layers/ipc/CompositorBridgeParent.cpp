@@ -105,6 +105,17 @@ CompositorBridgeParentBase::GetChildProcessId()
   return OtherPid();
 }
 
+bool
+CompositorBridgeParentBase::RecvResetDevice()
+{
+#ifdef XP_WIN
+  gfxWindowsPlatform::GetPlatform()->ForceDeviceReset(
+    ForcedDeviceResetReason::OPENSHAREDHANDLE);
+#endif
+  return true;
+}
+
+
 void
 CompositorBridgeParentBase::NotifyNotUsed(PTextureParent* aTexture, uint64_t aTransactionId)
 {

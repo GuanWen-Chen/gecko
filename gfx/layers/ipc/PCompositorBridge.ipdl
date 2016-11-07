@@ -228,6 +228,8 @@ parent:
 
   sync SyncWithCompositor();
 
+  sync ResetDevice();
+
 child:
   // Send back Compositor Frame Metrics from APZCs so tiled layers can
   // update progressively.

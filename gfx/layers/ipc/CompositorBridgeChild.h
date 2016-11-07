@@ -153,6 +153,7 @@ public:
   // send a message) and forward the call to the super-class's equivalent method.
   // This means that it is correct to call directly the super-class methods, but
   // you won't get the extra safety provided here.
+  bool SendDeviceReset();
   bool SendWillClose();
   bool SendPause();
   bool SendResume();
