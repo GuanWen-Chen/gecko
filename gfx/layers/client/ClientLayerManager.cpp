@@ -642,7 +642,7 @@ ClientLayerManager::ForwardTransaction(bool aScheduleComposite)
   // device-reset status.
   if (!gfxPlatform::GetPlatform()->DidRenderingDeviceReset()) {
     if (mForwarder->GetSyncObject()) {
-      mForwarder->GetSyncObject()->FinalizeFrame();
+      mForwarder->GetSyncObject()->FinalizeFrame(GetCompositorBridgeChild());
     }
   }
 

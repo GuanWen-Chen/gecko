@@ -1200,7 +1200,7 @@ SyncObjectD3D11::RegisterTexture(ID3D11Texture2D* aTexture)
 }
 
 void
-SyncObjectD3D11::FinalizeFrame()
+SyncObjectD3D11::FinalizeFrame(CompositorBridgeChild* aChild)
 {
   HRESULT hr;
 
@@ -1216,7 +1216,10 @@ SyncObjectD3D11::FinalizeFrame()
         return;
       }
 
-      gfxDevCrash(LogReason::D3D11FinalizeFrame) << "Without device reset: " << hexa(hr);
+      if (!aChild || !aChild->SendDeviceReset()) {
+        gfxDevCrash(LogReason::D3D11FinalizeFrame) << "Without device reset: "
+                    << hexa(hr);
+      }
     }
 
     // test QI

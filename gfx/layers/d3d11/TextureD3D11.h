@@ -400,7 +400,7 @@ class SyncObjectD3D11 : public SyncObject
 {
 public:
   SyncObjectD3D11(SyncHandle aSyncHandle);
-  virtual void FinalizeFrame();
+  virtual void FinalizeFrame(CompositorBridgeChild* aChild);
 
   virtual SyncType GetSyncType() { return SyncType::D3D11; }
 
