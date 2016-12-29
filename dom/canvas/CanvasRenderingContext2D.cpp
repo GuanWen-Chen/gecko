@@ -3,7 +3,9 @@
 #include "nsCCUncollectableMarker.h"
 #include "nsDeviceContext.h"
 #include "nsFilterInstance.h"
+#include "nsFocusManager.h"
 #include "nsFontMetrics.h"
+#include "nsIFocusManager.h"
 #include "nsSVGEffects.h"
 
 using mozilla::css::Declaration;
@@ -231,6 +233,82 @@ CanvasRenderingContext2D::ParseFilter(const nsAString& aString,
   return true;
 }
 
+//
+// CanvasUserInterface
+//
+void CanvasRenderingContext2D::DrawFocusIfNeeded(mozilla::dom::Element& aElement,
+                                                 ErrorResult& aRv)
+{
+  EnsureUserSpacePath();
+
+  if (!mPath) {
+    return;
+  }
+
+  if (DrawCustomFocusRing(aElement)) {
+    Save();
+
+    // set state to conforming focus state
+    ContextState& state = CurrentState();
+    state.globalAlpha = 1.0;
+    state.shadowBlur = 0;
+    state.shadowOffset.x = 0;
+    state.shadowOffset.y = 0;
+    state.op = mozilla::gfx::CompositionOp::OP_OVER;
+
+    state.lineCap = CapStyle::BUTT;
+    state.lineJoin = mozilla::gfx::JoinStyle::MITER_OR_BEVEL;
+    state.lineWidth = 1;
+    CurrentState().dash.Clear();
+
+    // color and style of the rings is the same as for image maps
+    // set the background focus color
+    CurrentState().SetColorStyle(Style::STROKE, NS_RGBA(255, 255, 255, 255));
+    // draw the focus ring
+    Stroke();
+
+    // set dashing for foreground
+    nsTArray<mozilla::gfx::Float>& dash = CurrentState().dash;
+    for (uint32_t i = 0; i < 2; ++i) {
+      if (!dash.AppendElement(1, fallible)) {
+        aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+        return;
+      }
+    }
+
+    // set the foreground focus color
+    CurrentState().SetColorStyle(Style::STROKE, NS_RGBA(0,0,0, 255));
+    // draw the focus ring
+    Stroke();
+
+    Restore();
+  }
+}
+
+bool CanvasRenderingContext2D::DrawCustomFocusRing(mozilla::dom::Element& aElement)
+{
+  EnsureUserSpacePath();
+
+  HTMLCanvasElement* canvas = GetCanvas();
+
+  if (!canvas|| !nsContentUtils::ContentIsDescendantOf(&aElement, canvas)) {
+    return false;
+  }
+
+  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+  if (fm) {
+    // check that the element i focused
+    nsCOMPtr<nsIDOMElement> focusedElement;
+    fm->GetFocusedElement(getter_AddRefs(focusedElement));
+    if (SameCOMIdentity(aElement.AsDOMNode(), focusedElement)) {
+      if (nsPIDOMWindowOuter *window = aElement.OwnerDoc()->GetWindow()) {
+        return window->ShouldShowFocusRing();
+      }
+    }
+  }
+
+  return false;
+}
 
 NS_IMPL_ADDREF_INHERITED(CanvasRenderingContext2D, RenderingContext2D)
 NS_IMPL_RELEASE_INHERITED(CanvasRenderingContext2D, RenderingContext2D)

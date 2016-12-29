@@ -22,7 +22,9 @@ public:
 
   virtual JSObject* WrapObject(JSContext *aCx, JS::Handle<JSObject*> aGivenProto) override;
 
+  //
   // CanvasFilter
+  //
   void GetFilter(nsAString& aFilter)
   {
     aFilter = CurrentState().filterString;
@@ -67,6 +69,11 @@ public:
     return CurrentState().op;
   }
 
+  //
+  // UserInterface
+  //
+  void DrawFocusIfNeeded(mozilla::dom::Element& aElement, ErrorResult& aRv);
+  bool DrawCustomFocusRing(mozilla::dom::Element& aElement);
 
 private:
   ~CanvasRenderingContext2D(){}

@@ -313,8 +313,6 @@ public:
   void Fill(const CanvasPath& aPath, const CanvasWindingRule& aWinding);
   void Stroke();
   void Stroke(const CanvasPath& aPath);
-  void DrawFocusIfNeeded(mozilla::dom::Element& aElement, ErrorResult& aRv);
-  bool DrawCustomFocusRing(mozilla::dom::Element& aElement);
   void Clip(const CanvasWindingRule& aWinding);
   void Clip(const CanvasPath& aPath, const CanvasWindingRule& aWinding);
   bool IsPointInPath(double aX, double aY, const CanvasWindingRule& aWinding);
@@ -664,6 +662,11 @@ public:
   // Check the global setup, as well as the compositor type:
   bool AllowOpenGLCanvas() const;
 
+  static already_AddRefed<nsStyleContext>
+  GetFontStyleContext(Element* aElement, const nsAString& aFont,
+                      nsIPresShell* aPresShell,
+                      nsAString& aOutUsedFont,
+                      ErrorResult& aError);
   static bool
   PropertyIsInheritOrInitial(mozilla::css::Declaration* aDeclaration, const nsCSSPropertyID aProperty);
 
@@ -673,13 +676,6 @@ public:
                     const nsCSSPropertyID aProp2, const nsAString& aValue2, bool* aChanged2);
 
 protected:
-
-  static already_AddRefed<nsStyleContext>
-  GetFontStyleContext(Element* aElement, const nsAString& aFont,
-                      nsIPresShell* aPresShell,
-                      nsAString& aOutUsedFont,
-                      ErrorResult& aError);
-
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
                              uint32_t aWidth, uint32_t aHeight,
                              JSObject** aRetval);
