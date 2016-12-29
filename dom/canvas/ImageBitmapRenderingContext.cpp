@@ -5,6 +5,7 @@
 
 #include "ImageBitmapRenderingContext.h"
 #include "mozilla/dom/ImageBitmapRenderingContextBinding.h"
+#include "mozilla/gfx/DataSurfaceHelpers.h"
 #include "ImageContainer.h"
 #include "ImageLayers.h"
 

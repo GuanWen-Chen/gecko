@@ -20,7 +20,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/DeclarationBlock.h"
 #include "mozilla/MemoryReporting.h"
-#include "CSSVariableDeclarations.h"
+#include "mozilla/CSSVariableDeclarations.h"
 #include "nsCSSDataBlock.h"
 #include "nsCSSPropertyID.h"
 #include "nsCSSProps.h"

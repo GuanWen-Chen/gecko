@@ -7,7 +7,7 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
-#include "mozilla/dom/CanvasRenderingContext2D.h"
+#include "mozilla/dom/RenderingContext2D.h"
 #include "mozilla/RefPtr.h"
 #include "nsISupports.h"
 #include "nsWrapperCache.h"
@@ -21,6 +21,7 @@ class SourceSurface;
 
 namespace dom {
 class SVGMatrix;
+class RenderingContext2D;
 
 class CanvasPattern final : public nsWrapperCache
 {
@@ -36,7 +37,7 @@ public:
     NOREPEAT
   };
 
-  CanvasPattern(CanvasRenderingContext2D* aContext,
+  CanvasPattern(RenderingContext2D* aContext,
                 gfx::SourceSurface* aSurface,
                 RepeatMode aRepeat,
                 nsIPrincipal* principalForSecurityCheck,
@@ -57,7 +58,7 @@ public:
     return CanvasPatternBinding::Wrap(aCx, this, aGivenProto);
   }
 
-  CanvasRenderingContext2D* GetParentObject()
+  RenderingContext2D* GetParentObject()
   {
     return mContext;
   }
@@ -65,7 +66,7 @@ public:
   // WebIDL
   void SetTransform(SVGMatrix& matrix);
 
-  RefPtr<CanvasRenderingContext2D> mContext;
+  RefPtr<RenderingContext2D> mContext;
   RefPtr<gfx::SourceSurface> mSurface;
   nsCOMPtr<nsIPrincipal> mPrincipal;
   mozilla::gfx::Matrix mTransform;

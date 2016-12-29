@@ -9,13 +9,15 @@
 #include "nsTArray.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
-#include "mozilla/dom/CanvasRenderingContext2D.h"
+#include "mozilla/dom/RenderingContext2D.h"
 #include "mozilla/gfx/2D.h"
 #include "nsWrapperCache.h"
 #include "gfxGradientCache.h"
 
 namespace mozilla {
 namespace dom {
+
+class RenderingContext2D;
 
 class CanvasGradient : public nsWrapperCache
 {
@@ -56,7 +58,7 @@ public:
     return CanvasGradientBinding::Wrap(aCx, this, aGivenProto);
   }
 
-  CanvasRenderingContext2D* GetParentObject()
+  RenderingContext2D* GetParentObject()
   {
     return mContext;
   }
@@ -64,13 +66,13 @@ public:
 protected:
   friend struct CanvasBidiProcessor;
 
-  CanvasGradient(CanvasRenderingContext2D* aContext, Type aType)
+  CanvasGradient(RenderingContext2D* aContext, Type aType)
     : mContext(aContext)
     , mType(aType)
   {
   }
 
-  RefPtr<CanvasRenderingContext2D> mContext;
+  RefPtr<RenderingContext2D> mContext;
   nsTArray<mozilla::gfx::GradientStop> mRawStops;
   RefPtr<mozilla::gfx::GradientStops> mStops;
   Type mType;

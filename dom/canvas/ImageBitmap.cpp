@@ -6,9 +6,13 @@
 
 #include "mozilla/dom/ImageBitmap.h"
 
+#include "gfxUtils.h"
+#include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/ImageBitmapBinding.h"
+#include "mozilla/dom/ImageData.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/StructuredCloneTags.h"
+#include "mozilla/dom/UnionTypes.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/gfx/2D.h"

@@ -42,6 +42,7 @@ EXPORTS.mozilla.dom += [
     'ImageBitmapSource.h',
     'ImageData.h',
     'OffscreenCanvas.h',
+    'RenderingContext2D.h',
     'TextMetrics.h',
     'WebGLVertexArrayObject.h',
 ]
@@ -60,6 +61,7 @@ UNIFIED_SOURCES += [
     'ImageBitmapUtils.cpp',
     'ImageData.cpp',
     'OffscreenCanvas.cpp',
+    'RenderingContext2D.cpp',
 ]
 
 SOURCES += [

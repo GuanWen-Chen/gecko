@@ -71,6 +71,7 @@ struct ContainerLayerParameters;
 class WritingMode;
 namespace dom {
 class CanvasRenderingContext2D;
+class RenderingContext2D;
 class DOMRectList;
 class Element;
 class HTMLImageElement;
@@ -2073,6 +2074,7 @@ public:
 
   struct SurfaceFromElementResult {
     friend class mozilla::dom::CanvasRenderingContext2D;
+    friend class mozilla::dom::RenderingContext2D;
     friend class nsLayoutUtils;
 
     /* If SFEResult contains a valid surface, it either mLayersImage or mSourceSurface
