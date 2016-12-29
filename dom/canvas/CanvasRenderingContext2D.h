@@ -11,6 +11,43 @@
 namespace mozilla {
 namespace dom {
 
+class CanvasDrawObserver
+{
+public:
+  explicit CanvasDrawObserver(RenderingContext2D* aCanvasContext);
+
+  // Only enumerate draw calls that could affect the heuristic
+  enum DrawCallType {
+    PutImageData,
+    GetImageData,
+    DrawImage
+  };
+
+  // This is the one that we call on relevant draw calls and count
+  // GPU vs. CPU preferrable calls...
+  void DidDrawCall(DrawCallType aType);
+
+  // When this returns true, the observer is done making the decisions.
+  // Right now, we expect to get rid of the observer after the FrameEnd
+  // returns true, though the decision could eventually change if the
+  // function calls shift.  If we change to monitor the functions called
+  // and make decisions to change more than once, we would probably want
+  // FrameEnd to reset the timer and counters as it returns true.
+  bool FrameEnd();
+
+private:
+  // These values will be picked up from preferences:
+  int32_t mMinFramesBeforeDecision;
+  float mMinSecondsBeforeDecision;
+  int32_t mMinCallsBeforeDecision;
+
+  RenderingContext2D* mCanvasContext;
+  int32_t mSoftwarePreferredCalls;
+  int32_t mGPUPreferredCalls;
+  int32_t mFramesRendered;
+  TimeStamp mCreationTime;
+};
+
 class CanvasRenderingContext2D : public RenderingContext2D
 {
 public:
@@ -75,12 +112,41 @@ public:
   void DrawFocusIfNeeded(mozilla::dom::Element& aElement, ErrorResult& aRv);
   bool DrawCustomFocusRing(mozilla::dom::Element& aElement);
 
+  //
+  // CanvasImageData
+  //
+  already_AddRefed<ImageData>
+    CreateImageData(JSContext* aCx, double aSw, double aSh,
+                    mozilla::ErrorResult& aError);
+  already_AddRefed<ImageData>
+    CreateImageData(JSContext* aCx, ImageData& aImagedata,
+                    mozilla::ErrorResult& aError);
+  already_AddRefed<ImageData>
+    GetImageData(JSContext* aCx, double aSx, double aSy, double aSw, double aSh,
+                 mozilla::ErrorResult& aError);
+
+  void PutImageData(ImageData& aImageData,
+                    double aDx, double aDy, mozilla::ErrorResult& aError);
+  void PutImageData(ImageData& aImageData,
+                    double aDx, double aDy, double aDirtyX, double aDirtyY,
+                    double aDirtyWidth, double aDirtyHeight,
+                    mozilla::ErrorResult& aError);
+
 private:
   ~CanvasRenderingContext2D(){}
   NS_DECL_ISUPPORTS_INHERITED
 
 protected:
   friend class CanvasFilterChainObserver;
+
+  nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
+                             uint32_t aWidth, uint32_t aHeight,
+                             JSObject** aRetval);
+  nsresult PutImageData_explicit(int32_t aX, int32_t aY, uint32_t aW, uint32_t aH,
+                                 dom::Uint8ClampedArray* aArray,
+                                 bool aHasDirtyRect, int32_t aDirtyX, int32_t aDirtyY,
+                                 int32_t aDirtyWidth, int32_t aDirtyHeight);
+
 
    // Returns whether a filter was successfully parsed.
   bool ParseFilter(const nsAString& aString,

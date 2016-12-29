@@ -352,15 +352,6 @@ public:
     DrawImage(aImage, aSx, aSy, aSw, aSh, aDx, aDy, aDw, aDh, 6, aError);
   }
 
-  already_AddRefed<ImageData>
-    CreateImageData(JSContext* aCx, double aSw, double aSh,
-                    mozilla::ErrorResult& aError);
-  already_AddRefed<ImageData>
-    CreateImageData(JSContext* aCx, ImageData& aImagedata,
-                    mozilla::ErrorResult& aError);
-  already_AddRefed<ImageData>
-    GetImageData(JSContext* aCx, double aSx, double aSy, double aSw, double aSh,
-                 mozilla::ErrorResult& aError);
   void PutImageData(ImageData& aImageData,
                     double aDx, double aDy, mozilla::ErrorResult& aError);
   void PutImageData(ImageData& aImageData,
@@ -661,6 +652,7 @@ public:
 
   // Check the global setup, as well as the compositor type:
   bool AllowOpenGLCanvas() const;
+
 
   static already_AddRefed<nsStyleContext>
   GetFontStyleContext(Element* aElement, const nsAString& aFont,
