@@ -13,6 +13,7 @@
 #include "nsPrintfCString.h"
 #include "WebGLActiveInfo.h"
 #include "WebGLContext.h"
+#include "WebGLObjectModel.h"
 #include "WebGLShader.h"
 #include "WebGLTransformFeedback.h"
 #include "WebGLUniformLocation.h"

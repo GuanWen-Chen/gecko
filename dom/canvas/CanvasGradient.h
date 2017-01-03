@@ -5,19 +5,35 @@
 #ifndef mozilla_dom_CanvasGradient_h
 #define mozilla_dom_CanvasGradient_h
 
+
+#include "CanvasUtils.h"
+#include "gfxUtils.h"
 #include "mozilla/Attributes.h"
 #include "nsTArray.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 #include "mozilla/dom/RenderingContext2D.h"
 #include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/PatternHelpers.h"
+#include "mozilla/gfx/Point.h"
+#include "mozilla/gfx/Types.h"
 #include "nsWrapperCache.h"
 #include "gfxGradientCache.h"
 
 namespace mozilla {
 namespace dom {
 
+using mozilla::gfx::DrawTarget;
+using mozilla::gfx::ExtendMode;
+using mozilla::gfx::Float;
+using mozilla::gfx::GeneralPattern;
+using mozilla::gfx::Pattern;
+using mozilla::gfx::Point;
+using mozilla::gfx::SamplingFilter;
+using mozilla::gfx::ToDeviceColor;
+
 class RenderingContext2D;
+enum class Style: uint8_t;
 
 class CanvasGradient : public nsWrapperCache
 {
@@ -77,6 +93,61 @@ protected:
   RefPtr<mozilla::gfx::GradientStops> mStops;
   Type mType;
   virtual ~CanvasGradient() {}
+};
+
+class CanvasRadialGradient : public CanvasGradient
+{
+public:
+  CanvasRadialGradient(RenderingContext2D* aContext,
+                       const Point& aBeginOrigin, Float aBeginRadius,
+                       const Point& aEndOrigin, Float aEndRadius)
+    : CanvasGradient(aContext, Type::RADIAL)
+    , mCenter1(aBeginOrigin)
+    , mCenter2(aEndOrigin)
+    , mRadius1(aBeginRadius)
+    , mRadius2(aEndRadius)
+  {
+  }
+
+  Point mCenter1;
+  Point mCenter2;
+  Float mRadius1;
+  Float mRadius2;
+};
+
+class CanvasLinearGradient : public CanvasGradient
+{
+public:
+  CanvasLinearGradient(RenderingContext2D* aContext,
+                       const Point& aBegin, const Point& aEnd)
+    : CanvasGradient(aContext, Type::LINEAR)
+    , mBegin(aBegin)
+    , mEnd(aEnd)
+  {
+  }
+
+protected:
+  friend struct CanvasBidiProcessor;
+  friend class CanvasGeneralPattern;
+
+  // Beginning of linear gradient.
+  Point mBegin;
+  // End of linear gradient.
+  Point mEnd;
+};
+
+// This class is named 'GeneralCanvasPattern' instead of just
+// 'GeneralPattern' to keep Windows PGO builds from confusing the
+// GeneralPattern class in gfxContext.cpp with this one.
+class CanvasGeneralPattern
+{
+public:
+
+  Pattern& ForStyle(RenderingContext2D* aCtx,
+                    Style aStyle,
+                    DrawTarget* aRT);
+
+  GeneralPattern mPattern;
 };
 
 } // namespace dom

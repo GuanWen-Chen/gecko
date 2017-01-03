@@ -11,6 +11,8 @@
 namespace mozilla {
 namespace dom {
 
+struct CanvasBidiProcessor;
+
 class CanvasDrawObserver
 {
 public:
@@ -132,12 +134,58 @@ public:
                     double aDirtyWidth, double aDirtyHeight,
                     mozilla::ErrorResult& aError);
 
+  //
+  // CanvasTextDrawingStyles
+  //
+  void GetFont(nsAString& aFont)
+  {
+    aFont = GetFont();
+  }
+
+  nsString& GetFont()
+  {
+    /* will initilize the value if not set, else does nothing */
+    GetCurrentFontStyle();
+
+    return CurrentState().font;
+  }
+
+  void SetFont(const nsAString& aFont, mozilla::ErrorResult& aError);
+  void GetTextAlign(nsAString& aTextAlign);
+  void SetTextAlign(const nsAString& aTextAlign);
+  void GetTextBaseline(nsAString& aTextBaseline);
+  void SetTextBaseline(const nsAString& aTextBaseline);
+
+  void GetMozTextStyle(nsAString& aMozTextStyle)
+  {
+    GetFont(aMozTextStyle);
+  }
+
+  void SetMozTextStyle(const nsAString& aMozTextStyle,
+                       mozilla::ErrorResult& aError)
+  {
+    SetFont(aMozTextStyle, aError);
+  }
+
+  //
+  // CanvasText
+  //
+  void FillText(const nsAString& aText, double aX, double aY,
+                const Optional<double>& aMaxWidth,
+                mozilla::ErrorResult& aError);
+  void StrokeText(const nsAString& aText, double aX, double aY,
+                  const Optional<double>& aMaxWidth,
+                  mozilla::ErrorResult& aError);
+  TextMetrics*
+    MeasureText(const nsAString& aRawText, mozilla::ErrorResult& aError);
+
 private:
   ~CanvasRenderingContext2D(){}
   NS_DECL_ISUPPORTS_INHERITED
 
 protected:
   friend class CanvasFilterChainObserver;
+  friend struct CanvasBidiProcessor;
 
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
                              uint32_t aWidth, uint32_t aHeight,
@@ -159,6 +207,22 @@ protected:
    * Flushes the PresShell, so the world can change if you call this function.
    */
   void UpdateFilter();
+
+  // Returns whether the font was successfully updated.
+  bool SetFontInternal(const nsAString& aFont, mozilla::ErrorResult& aError);
+
+  gfxFontGroup *GetCurrentFontStyle();
+
+  /**
+   * Implementation of the fillText, strokeText, and measure functions with
+   * the operation abstracted to a flag.
+   */
+  nsresult DrawOrMeasureText(const nsAString& aText,
+                             float aX,
+                             float aY,
+                             const Optional<double>& aMaxWidth,
+                             TextDrawOperation aOp,
+                             float* aWidth);
 
 };
 

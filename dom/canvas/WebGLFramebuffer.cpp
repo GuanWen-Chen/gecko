@@ -16,6 +16,7 @@
 #include "WebGLContext.h"
 #include "WebGLContextUtils.h"
 #include "WebGLExtensions.h"
+#include "WebGLObjectModel.h"
 #include "WebGLRenderbuffer.h"
 #include "WebGLTexture.h"
 
@@ -1868,6 +1869,26 @@ ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
     for (auto& cur : field) {
         ImplCycleCollectionTraverse(callback, cur, name, flags);
     }
+}
+
+void
+ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
+                            std::vector<IndexedBufferBinding>& field,
+                            const char* name, uint32_t flags)
+{
+    for (const auto& cur : field) {
+        ImplCycleCollectionTraverse(callback, cur.mBufferBinding, name, flags);
+    }
+}
+
+template <typename T>
+inline void
+ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
+                            WebGLRefPtr<T>& field,
+                            const char* name,
+                            uint32_t flags = 0)
+{
+    CycleCollectionNoteChild(callback, field.get(), name, flags);
 }
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(WebGLFramebuffer,
