@@ -5,7 +5,6 @@
 
 #include "IMFYCbCrImage.h"
 #include "DeviceManagerD3D9.h"
-#include "mozilla/layers/TextureD3D11.h"
 #include "mozilla/layers/CompositableClient.h"
 #include "mozilla/layers/CompositableForwarder.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
@@ -31,38 +30,6 @@ IMFYCbCrImage::~IMFYCbCrImage()
     mBuffer->Unlock();
   }
 }
-
-struct AutoLockTexture
-{
-  explicit AutoLockTexture(ID3D11Texture2D* aTexture)
-  {
-    aTexture->QueryInterface((IDXGIKeyedMutex**)getter_AddRefs(mMutex));
-    if (!mMutex) {
-      return;
-    }
-    HRESULT hr = mMutex->AcquireSync(0, 10000);
-    if (hr == WAIT_TIMEOUT) {
-      MOZ_CRASH("GFX: IMFYCbCrImage timeout");
-    }
-
-    if (FAILED(hr)) {
-      NS_WARNING("Failed to lock the texture");
-    }
-  }
-
-  ~AutoLockTexture()
-  {
-    if (!mMutex) {
-      return;
-    }
-    HRESULT hr = mMutex->ReleaseSync(0);
-    if (FAILED(hr)) {
-      NS_WARNING("Failed to unlock the texture");
-    }
-  }
-
-  RefPtr<IDXGIKeyedMutex> mMutex;
-};
 
 static already_AddRefed<IDirect3DTexture9>
 InitTextures(IDirect3DDevice9* aDevice,
@@ -133,12 +100,13 @@ FinishTextures(IDirect3DDevice9* aDevice,
   return true;
 }
 
-static bool UploadData(IDirect3DDevice9* aDevice,
-                       RefPtr<IDirect3DTexture9>& aTexture,
-                       HANDLE& aHandle,
-                       uint8_t* aSrc,
-                       const gfx::IntSize& aSrcSize,
-                       int32_t aSrcStride)
+bool
+IMFYCbCrImage::UploadData(IDirect3DDevice9* aDevice,
+                          RefPtr<IDirect3DTexture9>& aTexture,
+                          HANDLE& aHandle,
+                          uint8_t* aSrc,
+                          const gfx::IntSize& aSrcSize,
+                          int32_t aSrcStride)
 {
   RefPtr<IDirect3DSurface9> surf;
   D3DLOCKED_RECT rect;
