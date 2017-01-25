@@ -5,7 +5,12 @@
 #ifndef BasicRenderingContext2D_h
 #define BasicRenderingContext2D_h
 
+#include "FilterSupport.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
+#include "nsStyleStruct.h"
+#include "nsSVGEffects.h"
+
+using mozilla::gfx::FilterDescription;
 
 namespace mozilla {
 namespace dom {
@@ -14,17 +19,33 @@ class HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap;
 typedef HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap
   CanvasImageSource;
 
+extern const mozilla::gfx::Float SIGMA_MAX;
+
 /*
  * BasicRenderingContext2D
  */
 class BasicRenderingContext2D
 {
 public:
+  enum RenderingMode {
+    SoftwareBackendMode,
+    OpenGLBackendMode,
+    DefaultBackendMode
+  };
+
+  // This is created lazily so it is necessary to call EnsureTarget before
+  // accessing it. In the event of an error it will be equal to
+  // sErrorTarget.
+  RefPtr<mozilla::gfx::DrawTarget> mTarget;
+
+public:
+  explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
+    : mPathTransformWillUpdate(false){};
   //
   // CanvasState
   //
-  virtual void Save() = 0;
-  virtual void Restore() = 0;
+  void Save();
+  void Restore();
 
   //
   // CanvasTransform
@@ -193,6 +214,256 @@ public:
                        double aEndAngle,
                        bool aAnticlockwise,
                        ErrorResult& aError) = 0;
+protected:
+  enum class Style : uint8_t {
+    STROKE = 0,
+    FILL,
+    MAX
+  };
+
+  enum class TextAlign : uint8_t {
+    START,
+    END,
+    LEFT,
+    RIGHT,
+    CENTER
+  };
+
+  enum class TextBaseline : uint8_t {
+    TOP,
+    HANGING,
+    MIDDLE,
+    ALPHABETIC,
+    IDEOGRAPHIC,
+    BOTTOM
+  };
+
+  // A clip or a transform, recorded and restored in order.
+  struct ClipState {
+    explicit ClipState(mozilla::gfx::Path* aClip)
+      : clip(aClip)
+    {}
+
+    explicit ClipState(const mozilla::gfx::Matrix& aTransform)
+      : transform(aTransform)
+    {}
+
+    bool IsClip() const { return !!clip; }
+
+    RefPtr<mozilla::gfx::Path> clip;
+    mozilla::gfx::Matrix transform;
+  };
+
+  // state stack handling
+  class ContextState {
+  public:
+  ContextState() : textAlign(TextAlign::START),
+                   textBaseline(TextBaseline::ALPHABETIC),
+                   shadowColor(0),
+                   lineWidth(1.0f),
+                   miterLimit(10.0f),
+                   globalAlpha(1.0f),
+                   shadowBlur(0.0),
+                   dashOffset(0.0f),
+                   op(mozilla::gfx::CompositionOp::OP_OVER),
+                   fillRule(mozilla::gfx::FillRule::FILL_WINDING),
+                   lineCap(mozilla::gfx::CapStyle::BUTT),
+                   lineJoin(mozilla::gfx::JoinStyle::MITER_OR_BEVEL),
+                   filterString(u"none"),
+                   filterSourceGraphicTainted(false),
+                   imageSmoothingEnabled(true),
+                   fontExplicitLanguage(false)
+  { }
+
+  ContextState(const ContextState& aOther)
+      : fontGroup(aOther.fontGroup),
+        fontLanguage(aOther.fontLanguage),
+        fontFont(aOther.fontFont),
+        gradientStyles(aOther.gradientStyles),
+        patternStyles(aOther.patternStyles),
+        colorStyles(aOther.colorStyles),
+        font(aOther.font),
+        textAlign(aOther.textAlign),
+        textBaseline(aOther.textBaseline),
+        shadowColor(aOther.shadowColor),
+        transform(aOther.transform),
+        shadowOffset(aOther.shadowOffset),
+        lineWidth(aOther.lineWidth),
+        miterLimit(aOther.miterLimit),
+        globalAlpha(aOther.globalAlpha),
+        shadowBlur(aOther.shadowBlur),
+        dash(aOther.dash),
+        dashOffset(aOther.dashOffset),
+        op(aOther.op),
+        fillRule(aOther.fillRule),
+        lineCap(aOther.lineCap),
+        lineJoin(aOther.lineJoin),
+        filterString(aOther.filterString),
+        filterChain(aOther.filterChain),
+        filterChainObserver(aOther.filterChainObserver),
+        filter(aOther.filter),
+        filterAdditionalImages(aOther.filterAdditionalImages),
+        filterSourceGraphicTainted(aOther.filterSourceGraphicTainted),
+        imageSmoothingEnabled(aOther.imageSmoothingEnabled),
+        fontExplicitLanguage(aOther.fontExplicitLanguage)
+  { }
+
+  void SetColorStyle(Style aWhichStyle, nscolor aColor)
+  {
+    colorStyles[aWhichStyle] = aColor;
+    gradientStyles[aWhichStyle] = nullptr;
+    patternStyles[aWhichStyle] = nullptr;
+  }
+
+  void SetPatternStyle(Style aWhichStyle, CanvasPattern* aPat)
+  {
+    gradientStyles[aWhichStyle] = nullptr;
+    patternStyles[aWhichStyle] = aPat;
+  }
+
+  void SetGradientStyle(Style aWhichStyle, CanvasGradient* aGrad)
+  {
+    gradientStyles[aWhichStyle] = aGrad;
+    patternStyles[aWhichStyle] = nullptr;
+  }
+
+  /**
+    * returns true iff the given style is a solid color.
+    */
+  bool StyleIsColor(Style aWhichStyle) const
+  {
+    return !(patternStyles[aWhichStyle] || gradientStyles[aWhichStyle]);
+  }
+
+  int32_t ShadowBlurRadius() const
+  {
+    static const gfxFloat GAUSSIAN_SCALE_FACTOR = (3 * sqrt(2 * M_PI) / 4) * 1.5;
+    return (int32_t)floor(ShadowBlurSigma() * GAUSSIAN_SCALE_FACTOR + 0.5);
+  }
+
+  mozilla::gfx::Float ShadowBlurSigma() const
+  {
+    return std::min(SIGMA_MAX, shadowBlur / 2.0f);
+  }
+
+  nsTArray<ClipState> clipsAndTransforms;
+
+  RefPtr<gfxFontGroup> fontGroup;
+  nsCOMPtr<nsIAtom> fontLanguage;
+  nsFont fontFont;
+
+  EnumeratedArray<Style, Style::MAX, RefPtr<CanvasGradient>> gradientStyles;
+  EnumeratedArray<Style, Style::MAX, RefPtr<CanvasPattern>> patternStyles;
+  EnumeratedArray<Style, Style::MAX, nscolor> colorStyles;
+
+  nsString font;
+  TextAlign textAlign;
+  TextBaseline textBaseline;
+
+  nscolor shadowColor;
+
+  mozilla::gfx::Matrix transform;
+  mozilla::gfx::Point shadowOffset;
+  mozilla::gfx::Float lineWidth;
+  mozilla::gfx::Float miterLimit;
+  mozilla::gfx::Float globalAlpha;
+  mozilla::gfx::Float shadowBlur;
+  nsTArray<mozilla::gfx::Float> dash;
+  mozilla::gfx::Float dashOffset;
+
+  mozilla::gfx::CompositionOp op;
+  mozilla::gfx::FillRule fillRule;
+  mozilla::gfx::CapStyle lineCap;
+  mozilla::gfx::JoinStyle lineJoin;
+
+  nsString filterString;
+  nsTArray<nsStyleFilter> filterChain;
+  RefPtr<nsSVGFilterChainObserver> filterChainObserver;
+  mozilla::gfx::FilterDescription filter;
+  nsTArray<RefPtr<mozilla::gfx::SourceSurface>> filterAdditionalImages;
+
+  // This keeps track of whether the canvas was "tainted" or not when
+  // we last used a filter. This is a security measure, whereby the
+  // canvas is flipped to write-only if a cross-origin image is drawn to it.
+  // This is to stop bad actors from reading back data they shouldn't have
+  // access to.
+  //
+  // This also limits what filters we can apply to the context; in particular
+  // feDisplacementMap is restricted.
+  //
+  // We keep track of this to ensure that if this gets out of sync with the
+  // tainted state of the canvas itself, we update our filters accordingly.
+  bool filterSourceGraphicTainted;
+
+  bool imageSmoothingEnabled;
+  bool fontExplicitLanguage;
+  };
+
+  AutoTArray<ContextState, 3> mStyleStack;
+
+  /**
+    * We also have a device space pathbuilder. The reason for this is as
+    * follows, when a path is being built, but the transform changes, we
+    * can no longer keep a single path in userspace, considering there's
+    * several 'user spaces' now. We therefore transform the current path
+    * into device space, and add all operations to this path in device
+    * space.
+    *
+    * When then finally executing a render, the Azure drawing API expects
+    * the path to be in userspace. We could then set an identity transform
+    * on the DrawTarget and do all drawing in device space. This is
+    * undesirable because it requires transforming patterns, gradients,
+    * clips, etc. into device space and it would not work for stroking.
+    * What we do instead is convert the path back to user space when it is
+    * drawn, and draw it with the current transform. This makes all drawing
+    * occur correctly.
+    *
+    * There's never both a device space path builder and a user space path
+    * builder present at the same time. There is also never a path and a
+    * path builder present at the same time. When writing proceeds on an
+    * existing path the Path is cleared and a new builder is created.
+    *
+    * mPath is always in user-space.
+    */
+  RefPtr<mozilla::gfx::Path> mPath;
+  RefPtr<mozilla::gfx::PathBuilder> mPathBuilder;
+  bool mPathTransformWillUpdate;
+  mozilla::gfx::Matrix mPathToDS;
+
+protected:
+  virtual bool AlreadyShutDown() const = 0;
+
+  /**
+   * Create the backing surfacing, if it doesn't exist. If there is an error
+   * in creating the target then it will put sErrorTarget in place. If there
+   * is in turn an error in creating the sErrorTarget then they would both
+   * be null so IsTargetValid() would still return null.
+   *
+   * Returns the actual rendering mode being used by the created target.
+   */
+  virtual RenderingMode
+  EnsureTarget(const gfx::Rect* aCoveredRect = nullptr,
+               RenderingMode aRenderMode = RenderingMode::DefaultBackendMode) = 0;
+
+  /**
+   * Check if the target is valid after calling EnsureTarget.
+   */
+  virtual bool IsTargetValid() const = 0;
+
+  inline ContextState& CurrentState() {
+    return mStyleStack[mStyleStack.Length() - 1];
+  }
+
+  inline const ContextState& CurrentState() const {
+    return mStyleStack[mStyleStack.Length() - 1];
+  }
+
+
+  /**
+   * Needs to be called before updating the transform. This makes a call to
+   * EnsureTarget() so you don't have to.
+   */
+  void TransformWillUpdate();
 };
 
 } // namespace dom

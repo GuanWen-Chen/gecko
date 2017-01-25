@@ -160,11 +160,6 @@ using namespace mozilla::layers;
 namespace mozilla {
 namespace dom {
 
-// Cap sigma to avoid overly large temp surfaces.
-const Float SIGMA_MAX = 100;
-
-const size_t MAX_STYLE_STACK_SIZE = 1024;
-
 /* Memory reporter stuff */
 static int64_t gCanvasAzureMemoryUsed = 0;
 
@@ -1065,7 +1060,8 @@ static int32_t sMaxContexts = 0;
 
 
 CanvasRenderingContext2D::CanvasRenderingContext2D(layers::LayersBackend aCompositorBackend)
-  : mRenderingMode(RenderingMode::OpenGLBackendMode)
+  : BasicRenderingContext2D(aCompositorBackend)
+  , mRenderingMode(RenderingMode::OpenGLBackendMode)
   , mCompositorBackend(aCompositorBackend)
   // these are the default values from the Canvas spec
   , mWidth(0), mHeight(0)
@@ -1078,7 +1074,6 @@ CanvasRenderingContext2D::CanvasRenderingContext2D(layers::LayersBackend aCompos
   , mIsEntireFrameInvalid(false)
   , mPredictManyRedrawCalls(false)
   , mIsCapturedFrameInvalid(false)
-  , mPathTransformWillUpdate(false)
   , mInvalidateCount(0)
 {
   if (!sMaxContextsInitialized) {
@@ -2130,44 +2125,6 @@ SurfaceFormat
 CanvasRenderingContext2D::GetSurfaceFormat() const
 {
   return mOpaque ? SurfaceFormat::B8G8R8X8 : SurfaceFormat::B8G8R8A8;
-}
-
-//
-// state
-//
-
-void
-CanvasRenderingContext2D::Save()
-{
-  EnsureTarget();
-  mStyleStack[mStyleStack.Length() - 1].transform = mTarget->GetTransform();
-  mStyleStack.SetCapacity(mStyleStack.Length() + 1);
-  mStyleStack.AppendElement(CurrentState());
-
-  if (mStyleStack.Length() > MAX_STYLE_STACK_SIZE) {
-    // This is not fast, but is better than OOMing and shouldn't be hit by
-    // reasonable code.
-    mStyleStack.RemoveElementAt(0);
-  }
-}
-
-void
-CanvasRenderingContext2D::Restore()
-{
-  if (mStyleStack.Length() - 1 == 0)
-    return;
-
-  TransformWillUpdate();
-
-  for (const auto& clipOrTransform : CurrentState().clipsAndTransforms) {
-    if (clipOrTransform.IsClip()) {
-      mTarget->PopClip();
-    }
-  }
-
-  mStyleStack.RemoveElementAt(mStyleStack.Length() - 1);
-
-  mTarget->SetTransform(CurrentState().transform);
 }
 
 //
@@ -3589,25 +3546,6 @@ CanvasRenderingContext2D::EnsureUserSpacePath(const CanvasWindingRule& aWinding)
   }
 
   NS_ASSERTION(mPath, "mPath should exist");
-}
-
-void
-CanvasRenderingContext2D::TransformWillUpdate()
-{
-  EnsureTarget();
-
-  // Store the matrix that would transform the current path to device
-  // space.
-  if (mPath || mPathBuilder) {
-    if (!mPathTransformWillUpdate) {
-      // If the transform has already been updated, but a device space builder
-      // has not been created yet mPathToDS contains the right transform to
-      // transform the current mPath into device space.
-      // We should leave it alone.
-      mPathToDS = mTarget->GetTransform();
-    }
-    mPathTransformWillUpdate = true;
-  }
 }
 
 //
