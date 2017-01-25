@@ -55,16 +55,20 @@ public:
 
   virtual TextureClient* GetTextureClient(KnowsCompositor* aForwarder) override;
 
+  static DXGIYCbCrTextureData* GetD3D9TextureData(Data aData,
+	                                              gfx::IntSize aSize);
+  static DXGIYCbCrTextureData* GetD3D11TextureData(Data aData,
+	                                               gfx::IntSize aSize);
+protected:
+
+  TextureClient* GetD3D9TextureClient(KnowsCompositor* aForwarder);
+  TextureClient* GetD3D11TextureClient(KnowsCompositor* aForwarder);
   static bool UploadData(IDirect3DDevice9* aDevice,
                          RefPtr<IDirect3DTexture9>& aTexture,
                          HANDLE& aHandle,
                          uint8_t* aSrc,
                          const gfx::IntSize& aSrcSize,
                          int32_t aSrcStride);
-
-protected:
-
-  TextureClient* GetD3D9TextureClient(KnowsCompositor* aForwarder);
 
   ~IMFYCbCrImage();
 

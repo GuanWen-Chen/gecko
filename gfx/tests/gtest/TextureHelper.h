@@ -27,67 +27,6 @@ using mozilla::gfx::SurfaceFormat;
 namespace mozilla {
 namespace layers {
 #ifdef XP_WIN
-/**
- * This function creates a D3D9TextureData with given data.
- */
-void
-GetD3D9TextureData(PlanarYCbCrData& aClientData, TextureData*& aData)
-{
-  DeviceManagerD3D9::Get();
-  RefPtr<IDirect3DDevice9> device = DeviceManagerD3D9::GetDevice();
-  if (!device) {
-    return;
-  }
-
-  RefPtr<IDirect3DTexture9> textureY;
-  HANDLE shareHandleY = 0;
-  if (!IMFYCbCrImage::UploadData(device, textureY, shareHandleY, aClientData.mYChannel,
-                  aClientData.mYSize, aClientData.mYStride)) {
-    return;
-  }
-
-  RefPtr<IDirect3DTexture9> textureCb;
-  HANDLE shareHandleCb = 0;
-  if (!IMFYCbCrImage::UploadData(device, textureCb, shareHandleCb, aClientData.mCbChannel,
-                  aClientData.mCbCrSize, aClientData.mCbCrStride)) {
-    return;
-  }
-
-  RefPtr<IDirect3DTexture9> textureCr;
-  HANDLE shareHandleCr = 0;
-  if (!IMFYCbCrImage::UploadData(device, textureCr, shareHandleCr, aClientData.mCrChannel,
-                  aClientData.mCbCrSize, aClientData.mCbCrStride)) {
-    return;
-  }
-
-  RefPtr<IDirect3DQuery9> query;
-  HRESULT hr = device->CreateQuery(D3DQUERYTYPE_EVENT, getter_AddRefs(query));
-  hr = query->Issue(D3DISSUE_END);
-
-  int iterations = 0;
-  bool valid = false;
-  while (iterations < 10) {
-    HRESULT hr = query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
-    if (hr == S_FALSE) {
-      Sleep(1);
-      iterations++;
-      continue;
-    }
-    if (hr == S_OK) {
-      valid = true;
-    }
-    break;
-  }
-
-  if (!valid) {
-    return;
-  }
-
-  aData = DXGIYCbCrTextureData::Create(
-    TextureFlags::DEALLOCATE_CLIENT, textureY, textureCb, textureCr,
-    shareHandleY, shareHandleCb, shareHandleCr, IntSize(200, 150),
-    aClientData.mYSize, aClientData.mCbCrSize);
-}
 
 TextureData*
 CreateDXGID3D9TextureData(IntSize aSize, SurfaceFormat aFormat,
@@ -172,7 +111,7 @@ CreateYCbCrTextureClientWithBackend(LayersBackend aLayersBackend)
   if (!device || aLayersBackend != LayersBackend::LAYERS_D3D11) {
     if (aLayersBackend == LayersBackend::LAYERS_D3D11 ||
         aLayersBackend == LayersBackend::LAYERS_D3D9) {
-      GetD3D9TextureData(clientData, data);
+      data = IMFYCbCrImage::GetD3D9TextureData(clientData, IntSize(200, 150));
     }
     if (data) {
       return MakeAndAddRef<TextureClient>(data, TextureFlags::DEALLOCATE_CLIENT,
@@ -183,45 +122,7 @@ CreateYCbCrTextureClientWithBackend(LayersBackend aLayersBackend)
   }
 
   // Create YCbCrD3D11TextureData
-  CD3D11_TEXTURE2D_DESC newDesc(DXGI_FORMAT_R8_UNORM, clientData.mYSize.width,
-                                clientData.mYSize.height, 1, 1);
-  newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-  RefPtr<ID3D11Texture2D> textureY;
-
-  D3D11_SUBRESOURCE_DATA yData = { clientData.mYChannel,
-                                   (UINT)clientData.mYStride, 0 };
-
-  HRESULT hr =
-    device->CreateTexture2D(&newDesc, &yData, getter_AddRefs(textureY));
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
-
-  newDesc.Width = clientData.mCbCrSize.width;
-  newDesc.Height = clientData.mCbCrSize.height;
-
-  RefPtr<ID3D11Texture2D> textureCb;
-  D3D11_SUBRESOURCE_DATA cbData = { clientData.mCbChannel,
-                                    (UINT)clientData.mCbCrStride, 0 };
-  hr = device->CreateTexture2D(&newDesc, &cbData, getter_AddRefs(textureCb));
-
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
-
-  RefPtr<ID3D11Texture2D> textureCr;
-  D3D11_SUBRESOURCE_DATA crData = { clientData.mCrChannel,
-                                    (UINT)clientData.mCbCrStride, 0 };
-  hr = device->CreateTexture2D(&newDesc, &crData, getter_AddRefs(textureCr));
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
-
-  // Even though the textures we created are meant to be protected by a keyed
-  // mutex, it appears that D3D doesn't include the initial memory upload within
-  // this synchronization. Add an empty lock/unlock pair since that appears to
-  // be sufficient to make sure we synchronize.
-  {
-    AutoLockTexture lockCr(textureCr);
-  }
-
-  data = DXGIYCbCrTextureData::Create(TextureFlags::DEALLOCATE_CLIENT, textureY,
-                                      textureCb, textureCr, IntSize(200, 150),
-                                      clientData.mYSize, clientData.mCbCrSize);
+  data = IMFYCbCrImage::GetD3D11TextureData(clientData, IntSize(200, 150));
 #endif
 
   if (data) {

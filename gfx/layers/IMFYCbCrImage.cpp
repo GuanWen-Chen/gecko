@@ -128,9 +128,8 @@ IMFYCbCrImage::UploadData(IDirect3DDevice9* aDevice,
   return FinishTextures(aDevice, aTexture, surf);
 }
 
-TextureClient*
-IMFYCbCrImage::GetD3D9TextureClient(KnowsCompositor* aForwarder)
-{
+DXGIYCbCrTextureData*
+IMFYCbCrImage::GetD3D9TextureData(Data aData, gfx::IntSize aSize) {
   RefPtr<IDirect3DDevice9> device = DeviceManagerD3D9::GetDevice();
   if (!device) {
     return nullptr;
@@ -139,21 +138,21 @@ IMFYCbCrImage::GetD3D9TextureClient(KnowsCompositor* aForwarder)
   RefPtr<IDirect3DTexture9> textureY;
   HANDLE shareHandleY = 0;
   if (!UploadData(device, textureY, shareHandleY,
-                  mData.mYChannel, mData.mYSize, mData.mYStride)) {
+    aData.mYChannel, aData.mYSize, aData.mYStride)) {
     return nullptr;
   }
 
   RefPtr<IDirect3DTexture9> textureCb;
   HANDLE shareHandleCb = 0;
   if (!UploadData(device, textureCb, shareHandleCb,
-                  mData.mCbChannel, mData.mCbCrSize, mData.mCbCrStride)) {
+    aData.mCbChannel, aData.mCbCrSize, aData.mCbCrStride)) {
     return nullptr;
   }
 
   RefPtr<IDirect3DTexture9> textureCr;
   HANDLE shareHandleCr = 0;
   if (!UploadData(device, textureCr, shareHandleCr,
-                  mData.mCrChannel, mData.mCbCrSize, mData.mCbCrStride)) {
+    aData.mCrChannel, aData.mCbCrSize, aData.mCbCrStride)) {
     return nullptr;
   }
 
@@ -180,13 +179,93 @@ IMFYCbCrImage::GetD3D9TextureClient(KnowsCompositor* aForwarder)
     return nullptr;
   }
 
+  return DXGIYCbCrTextureData::Create(TextureFlags::DEFAULT,
+                                      textureY, textureCb, textureCr,
+                                      shareHandleY, shareHandleCb, shareHandleCr,
+                                      aSize, aData.mYSize, aData.mCbCrSize);
+}
+
+TextureClient*
+IMFYCbCrImage::GetD3D9TextureClient(KnowsCompositor* aForwarder)
+{
+  DXGIYCbCrTextureData* textureData = GetD3D9TextureData(mData, GetSize());
+  if (textureData == nullptr) return nullptr;
+
   mTextureClient = TextureClient::CreateWithData(
-    DXGIYCbCrTextureData::Create(TextureFlags::DEFAULT,
-                                 textureY, textureCb, textureCr,
-                                 shareHandleY, shareHandleCb, shareHandleCr,
-                                 GetSize(), mData.mYSize, mData.mCbCrSize),
-    TextureFlags::DEFAULT,
+	textureData, TextureFlags::DEFAULT,
     aForwarder->GetTextureForwarder()
+  );
+
+  return mTextureClient;
+}
+
+DXGIYCbCrTextureData*
+IMFYCbCrImage::GetD3D11TextureData(Data aData, gfx::IntSize aSize)
+{
+  RefPtr<ID3D11Device> device =
+    gfx::DeviceManagerDx::Get()->GetContentDevice();
+  if (!device) {
+    device =
+      gfx::DeviceManagerDx::Get()->GetCompositorDevice();
+  }
+
+  if (!gfx::DeviceManagerDx::Get()->CanInitializeKeyedMutexTextures()) {
+    return nullptr;
+  }
+
+  if (aData.mYStride < 0 || aData.mCbCrStride < 0) {
+    // D3D11 only supports unsigned stride values.
+    return nullptr;
+  }
+
+  CD3D11_TEXTURE2D_DESC newDesc(DXGI_FORMAT_R8_UNORM,
+                                aData.mYSize.width, aData.mYSize.height, 1, 1);
+
+  if (device == gfx::DeviceManagerDx::Get()->GetCompositorDevice()) {
+    newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+  } else {
+    newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+  }
+
+  RefPtr<ID3D11Texture2D> textureY;
+  D3D11_SUBRESOURCE_DATA yData = { aData.mYChannel, (UINT)aData.mYStride, 0 };
+  HRESULT hr = device->CreateTexture2D(&newDesc, &yData, getter_AddRefs(textureY));
+  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
+
+  newDesc.Width = aData.mCbCrSize.width;
+  newDesc.Height = aData.mCbCrSize.height;
+
+  RefPtr<ID3D11Texture2D> textureCb;
+  D3D11_SUBRESOURCE_DATA cbData = { aData.mCbChannel, (UINT)aData.mCbCrStride, 0 };
+  hr = device->CreateTexture2D(&newDesc, &cbData, getter_AddRefs(textureCb));
+  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
+
+  RefPtr<ID3D11Texture2D> textureCr;
+  D3D11_SUBRESOURCE_DATA crData = { aData.mCrChannel, (UINT)aData.mCbCrStride, 0 };
+  hr = device->CreateTexture2D(&newDesc, &crData, getter_AddRefs(textureCr));
+  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
+
+  // Even though the textures we created are meant to be protected by a keyed mutex,
+  // it appears that D3D doesn't include the initial memory upload within this
+  // synchronization. Add an empty lock/unlock pair since that appears to
+  // be sufficient to make sure we synchronize.
+  {
+    AutoLockTexture lockCr(textureCr);
+  }
+  return DXGIYCbCrTextureData::Create(TextureFlags::DEFAULT,
+	  textureY, textureCb, textureCr,
+	  aSize, aData.mYSize, aData.mCbCrSize);
+}
+
+TextureClient*
+IMFYCbCrImage::GetD3D11TextureClient(KnowsCompositor* aForwarder) {
+  DXGIYCbCrTextureData* textureData = GetD3D11TextureData(mData, GetSize());
+  if (textureData == nullptr) return nullptr;
+
+  mTextureClient = TextureClient::CreateWithData(
+	  textureData,
+	  TextureFlags::DEFAULT,
+	  aForwarder->GetTextureForwarder()
   );
 
   return mTextureClient;
@@ -214,60 +293,8 @@ IMFYCbCrImage::GetTextureClient(KnowsCompositor* aForwarder)
     }
     return nullptr;
   }
+  return GetD3D11TextureClient(aForwarder);
 
-  if (!gfx::DeviceManagerDx::Get()->CanInitializeKeyedMutexTextures()) {
-    return nullptr;
-  }
-
-  if (mData.mYStride < 0 || mData.mCbCrStride < 0) {
-    // D3D11 only supports unsigned stride values.
-    return nullptr;
-  }
-
-  CD3D11_TEXTURE2D_DESC newDesc(DXGI_FORMAT_R8_UNORM,
-                                mData.mYSize.width, mData.mYSize.height, 1, 1);
-
-  if (device == gfx::DeviceManagerDx::Get()->GetCompositorDevice()) {
-    newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
-  } else {
-    newDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-  }
-
-  RefPtr<ID3D11Texture2D> textureY;
-  D3D11_SUBRESOURCE_DATA yData = { mData.mYChannel, (UINT)mData.mYStride, 0 };
-  HRESULT hr = device->CreateTexture2D(&newDesc, &yData, getter_AddRefs(textureY));
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
-
-  newDesc.Width = mData.mCbCrSize.width;
-  newDesc.Height = mData.mCbCrSize.height;
-
-  RefPtr<ID3D11Texture2D> textureCb;
-  D3D11_SUBRESOURCE_DATA cbData = { mData.mCbChannel, (UINT)mData.mCbCrStride, 0 };
-  hr = device->CreateTexture2D(&newDesc, &cbData, getter_AddRefs(textureCb));
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
-
-  RefPtr<ID3D11Texture2D> textureCr;
-  D3D11_SUBRESOURCE_DATA crData = { mData.mCrChannel, (UINT)mData.mCbCrStride, 0 };
-  hr = device->CreateTexture2D(&newDesc, &crData, getter_AddRefs(textureCr));
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
-
-  // Even though the textures we created are meant to be protected by a keyed mutex,
-  // it appears that D3D doesn't include the initial memory upload within this
-  // synchronization. Add an empty lock/unlock pair since that appears to
-  // be sufficient to make sure we synchronize.
-  {
-    AutoLockTexture lockCr(textureCr);
-  }
-
-  mTextureClient = TextureClient::CreateWithData(
-    DXGIYCbCrTextureData::Create(TextureFlags::DEFAULT,
-                                 textureY, textureCb, textureCr,
-                                 GetSize(), mData.mYSize, mData.mCbCrSize),
-    TextureFlags::DEFAULT,
-    aForwarder->GetTextureForwarder()
-  );
-
-  return mTextureClient;
 }
 
 } // namespace layers
