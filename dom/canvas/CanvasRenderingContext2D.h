@@ -26,8 +26,6 @@
 #include "imgIEncoder.h"
 #include "nsLayoutUtils.h"
 #include "mozilla/EnumeratedArray.h"
-#include "FilterSupport.h"
-#include "nsSVGEffects.h"
 #include "Layers.h"
 
 class nsGlobalWindow;
@@ -39,16 +37,12 @@ class SourceSurface;
 } // namespace gl
 
 namespace dom {
-class HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap;
-typedef HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap CanvasImageSource;
 class ImageData;
 class StringOrCanvasGradientOrCanvasPattern;
 class OwningStringOrCanvasGradientOrCanvasPattern;
 class TextMetrics;
 class CanvasFilterChainObserver;
 class CanvasPath;
-
-extern const mozilla::gfx::Float SIGMA_MAX;
 
 template<typename T> class Optional;
 
@@ -82,8 +76,6 @@ public:
     return mCanvasElement->GetOriginalCanvas();
   }
 
-  void Save() override;
-  void Restore() override;
   void Scale(double aX, double aY, mozilla::ErrorResult& aError) override;
   void Rotate(double aAngle, mozilla::ErrorResult& aError) override;
   void Translate(double aX, double aY, mozilla::ErrorResult& aError) override;
@@ -412,12 +404,6 @@ public:
                   const nsAString& aBgColor, uint32_t aFlags,
                   mozilla::ErrorResult& aError);
 
-  enum RenderingMode {
-    SoftwareBackendMode,
-    OpenGLBackendMode,
-    DefaultBackendMode
-  };
-
   bool SwitchRenderingMode(RenderingMode aRenderingMode);
 
   // Eventually this should be deprecated. Keeping for now to keep the binding functional.
@@ -490,19 +476,12 @@ public:
 
   // nsISupports interface + CC
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-
   NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS(CanvasRenderingContext2D)
 
   enum class CanvasMultiGetterType : uint8_t {
     STRING = 0,
     PATTERN = 1,
     GRADIENT = 2
-  };
-
-  enum class Style : uint8_t {
-    STROKE = 0,
-    FILL,
-    MAX
   };
 
   nsINode* GetParentObject()
@@ -629,16 +608,10 @@ protected:
   // Ensures a path in UserSpace is available.
   void EnsureUserSpacePath(const CanvasWindingRule& aWinding = CanvasWindingRule::Nonzero);
 
-  /**
-   * Needs to be called before updating the transform. This makes a call to
-   * EnsureTarget() so you don't have to.
-   */
-  void TransformWillUpdate();
-
   // Report the fillRule has changed.
   void FillRuleChanged();
 
-   /**
+  /**
    * Create the backing surfacing, if it doesn't exist. If there is an error
    * in creating the target then it will put sErrorTarget in place. If there
    * is in turn an error in creating the sErrorTarget then they would both
@@ -646,8 +619,9 @@ protected:
    *
    * Returns the actual rendering mode being used by the created target.
    */
-  RenderingMode EnsureTarget(const gfx::Rect* aCoveredRect = nullptr,
-                             RenderingMode aRenderMode = RenderingMode::DefaultBackendMode);
+  virtual RenderingMode
+  EnsureTarget(const gfx::Rect* aCoveredRect = nullptr,
+               RenderingMode aRenderMode = RenderingMode::DefaultBackendMode) override;
 
   void RestoreClipsAndTransformToTarget();
 
@@ -693,7 +667,7 @@ protected:
   /**
    * Check if the target is valid after calling EnsureTarget.
    */
-  bool IsTargetValid() const {
+  bool IsTargetValid() const override{
     return !!mTarget && mTarget != sErrorTarget;
   }
 
@@ -776,11 +750,6 @@ protected:
   // If mCanvasElement is not provided, then a docshell is
   nsCOMPtr<nsIDocShell> mDocShell;
 
-  // This is created lazily so it is necessary to call EnsureTarget before
-  // accessing it. In the event of an error it will be equal to
-  // sErrorTarget.
-  RefPtr<mozilla::gfx::DrawTarget> mTarget;
-
   RefPtr<mozilla::layers::PersistentBufferProvider> mBufferProvider;
 
   uint32_t SkiaGLTex() const;
@@ -793,7 +762,7 @@ protected:
 
   RefPtr<CanvasShutdownObserver> mShutdownObserver;
   void RemoveShutdownObserver();
-  bool AlreadyShutDown() const { return !mShutdownObserver; }
+  virtual bool AlreadyShutDown() const override{ return !mShutdownObserver; }
 
   /**
     * Flag to avoid duplicate calls to InvalidateFrame. Set to true whenever
@@ -838,11 +807,7 @@ protected:
     *
     * mPath is always in user-space.
     */
-  RefPtr<mozilla::gfx::Path> mPath;
   RefPtr<mozilla::gfx::PathBuilder> mDSPathBuilder;
-  RefPtr<mozilla::gfx::PathBuilder> mPathBuilder;
-  bool mPathTransformWillUpdate;
-  mozilla::gfx::Matrix mPathToDS;
 
   /**
     * Number of times we've invalidated before calling redraw
@@ -919,23 +884,6 @@ protected:
   // text
 
 protected:
-  enum class TextAlign : uint8_t {
-    START,
-    END,
-    LEFT,
-    RIGHT,
-    CENTER
-  };
-
-  enum class TextBaseline : uint8_t {
-    TOP,
-    HANGING,
-    MIDDLE,
-    ALPHABETIC,
-    IDEOGRAPHIC,
-    BOTTOM
-  };
-
   enum class TextDrawOperation : uint8_t {
     FILL,
     STROKE,
@@ -957,177 +905,6 @@ protected:
                              float* aWidth);
 
   bool CheckSizeForSkiaGL(mozilla::gfx::IntSize aSize);
-
-  // A clip or a transform, recorded and restored in order.
-  struct ClipState {
-    explicit ClipState(mozilla::gfx::Path* aClip)
-      : clip(aClip)
-    {}
-
-    explicit ClipState(const mozilla::gfx::Matrix& aTransform)
-      : transform(aTransform)
-    {}
-
-    bool IsClip() const { return !!clip; }
-
-    RefPtr<mozilla::gfx::Path> clip;
-    mozilla::gfx::Matrix transform;
-  };
-
-  // state stack handling
-  class ContextState {
-  public:
-    ContextState() : textAlign(TextAlign::START),
-                     textBaseline(TextBaseline::ALPHABETIC),
-                     shadowColor(0),
-                     lineWidth(1.0f),
-                     miterLimit(10.0f),
-                     globalAlpha(1.0f),
-                     shadowBlur(0.0),
-                     dashOffset(0.0f),
-                     op(mozilla::gfx::CompositionOp::OP_OVER),
-                     fillRule(mozilla::gfx::FillRule::FILL_WINDING),
-                     lineCap(mozilla::gfx::CapStyle::BUTT),
-                     lineJoin(mozilla::gfx::JoinStyle::MITER_OR_BEVEL),
-                     filterString(u"none"),
-                     filterSourceGraphicTainted(false),
-                     imageSmoothingEnabled(true),
-                     fontExplicitLanguage(false)
-    { }
-
-    ContextState(const ContextState& aOther)
-        : fontGroup(aOther.fontGroup),
-          fontLanguage(aOther.fontLanguage),
-          fontFont(aOther.fontFont),
-          gradientStyles(aOther.gradientStyles),
-          patternStyles(aOther.patternStyles),
-          colorStyles(aOther.colorStyles),
-          font(aOther.font),
-          textAlign(aOther.textAlign),
-          textBaseline(aOther.textBaseline),
-          shadowColor(aOther.shadowColor),
-          transform(aOther.transform),
-          shadowOffset(aOther.shadowOffset),
-          lineWidth(aOther.lineWidth),
-          miterLimit(aOther.miterLimit),
-          globalAlpha(aOther.globalAlpha),
-          shadowBlur(aOther.shadowBlur),
-          dash(aOther.dash),
-          dashOffset(aOther.dashOffset),
-          op(aOther.op),
-          fillRule(aOther.fillRule),
-          lineCap(aOther.lineCap),
-          lineJoin(aOther.lineJoin),
-          filterString(aOther.filterString),
-          filterChain(aOther.filterChain),
-          filterChainObserver(aOther.filterChainObserver),
-          filter(aOther.filter),
-          filterAdditionalImages(aOther.filterAdditionalImages),
-          filterSourceGraphicTainted(aOther.filterSourceGraphicTainted),
-          imageSmoothingEnabled(aOther.imageSmoothingEnabled),
-          fontExplicitLanguage(aOther.fontExplicitLanguage)
-    { }
-
-    void SetColorStyle(Style aWhichStyle, nscolor aColor)
-    {
-      colorStyles[aWhichStyle] = aColor;
-      gradientStyles[aWhichStyle] = nullptr;
-      patternStyles[aWhichStyle] = nullptr;
-    }
-
-    void SetPatternStyle(Style aWhichStyle, CanvasPattern* aPat)
-    {
-      gradientStyles[aWhichStyle] = nullptr;
-      patternStyles[aWhichStyle] = aPat;
-    }
-
-    void SetGradientStyle(Style aWhichStyle, CanvasGradient* aGrad)
-    {
-      gradientStyles[aWhichStyle] = aGrad;
-      patternStyles[aWhichStyle] = nullptr;
-    }
-
-    /**
-      * returns true iff the given style is a solid color.
-      */
-    bool StyleIsColor(Style aWhichStyle) const
-    {
-      return !(patternStyles[aWhichStyle] || gradientStyles[aWhichStyle]);
-    }
-
-    int32_t ShadowBlurRadius() const
-    {
-      static const gfxFloat GAUSSIAN_SCALE_FACTOR = (3 * sqrt(2 * M_PI) / 4) * 1.5;
-      return (int32_t)floor(ShadowBlurSigma() * GAUSSIAN_SCALE_FACTOR + 0.5);
-    }
-
-    mozilla::gfx::Float ShadowBlurSigma() const
-    {
-      return std::min(SIGMA_MAX, shadowBlur / 2.0f);
-    }
-
-    nsTArray<ClipState> clipsAndTransforms;
-
-    RefPtr<gfxFontGroup> fontGroup;
-    nsCOMPtr<nsIAtom> fontLanguage;
-    nsFont fontFont;
-
-    EnumeratedArray<Style, Style::MAX, RefPtr<CanvasGradient>> gradientStyles;
-    EnumeratedArray<Style, Style::MAX, RefPtr<CanvasPattern>> patternStyles;
-    EnumeratedArray<Style, Style::MAX, nscolor> colorStyles;
-
-    nsString font;
-    TextAlign textAlign;
-    TextBaseline textBaseline;
-
-    nscolor shadowColor;
-
-    mozilla::gfx::Matrix transform;
-    mozilla::gfx::Point shadowOffset;
-    mozilla::gfx::Float lineWidth;
-    mozilla::gfx::Float miterLimit;
-    mozilla::gfx::Float globalAlpha;
-    mozilla::gfx::Float shadowBlur;
-    nsTArray<mozilla::gfx::Float> dash;
-    mozilla::gfx::Float dashOffset;
-
-    mozilla::gfx::CompositionOp op;
-    mozilla::gfx::FillRule fillRule;
-    mozilla::gfx::CapStyle lineCap;
-    mozilla::gfx::JoinStyle lineJoin;
-
-    nsString filterString;
-    nsTArray<nsStyleFilter> filterChain;
-    RefPtr<nsSVGFilterChainObserver> filterChainObserver;
-    mozilla::gfx::FilterDescription filter;
-    nsTArray<RefPtr<mozilla::gfx::SourceSurface>> filterAdditionalImages;
-
-    // This keeps track of whether the canvas was "tainted" or not when
-    // we last used a filter. This is a security measure, whereby the
-    // canvas is flipped to write-only if a cross-origin image is drawn to it.
-    // This is to stop bad actors from reading back data they shouldn't have
-    // access to.
-    //
-    // This also limits what filters we can apply to the context; in particular
-    // feDisplacementMap is restricted.
-    //
-    // We keep track of this to ensure that if this gets out of sync with the
-    // tainted state of the canvas itself, we update our filters accordingly.
-    bool filterSourceGraphicTainted;
-
-    bool imageSmoothingEnabled;
-    bool fontExplicitLanguage;
-  };
-
-  AutoTArray<ContextState, 3> mStyleStack;
-
-  inline ContextState& CurrentState() {
-    return mStyleStack[mStyleStack.Length() - 1];
-  }
-
-  inline const ContextState& CurrentState() const {
-    return mStyleStack[mStyleStack.Length() - 1];
-  }
 
   friend class CanvasGeneralPattern;
   friend class CanvasFilterChainObserver;
