@@ -16,7 +16,6 @@
 #include "gfxTextRun.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/BasicRenderingContext2D.h"
-#include "mozilla/dom/CanvasGradient.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 #include "mozilla/dom/CanvasPattern.h"
 #include "mozilla/gfx/Rect.h"
@@ -55,8 +54,8 @@ class CanvasShutdownObserver;
  **/
 class CanvasRenderingContext2D final :
   public nsICanvasRenderingContextInternal,
-  public nsWrapperCache,
-  public BasicRenderingContext2D
+  public BasicRenderingContext2D,
+  public nsWrapperCache
 {
   virtual ~CanvasRenderingContext2D();
 
@@ -74,40 +73,6 @@ public:
     // corresponds to changes to the old bindings made in bug 745025
     return mCanvasElement->GetOriginalCanvas();
   }
-
-  void
-  GetStrokeStyle(OwningStringOrCanvasGradientOrCanvasPattern& aValue) override
-  {
-    GetStyleAsUnion(aValue, Style::STROKE);
-  }
-
-  void
-  SetStrokeStyle(const StringOrCanvasGradientOrCanvasPattern& aValue) override
-  {
-    SetStyleFromUnion(aValue, Style::STROKE);
-  }
-
-  void
-  GetFillStyle(OwningStringOrCanvasGradientOrCanvasPattern& aValue) override
-  {
-    GetStyleAsUnion(aValue, Style::FILL);
-  }
-
-  void
-  SetFillStyle(const StringOrCanvasGradientOrCanvasPattern& aValue) override
-  {
-    SetStyleFromUnion(aValue, Style::FILL);
-  }
-
-  already_AddRefed<CanvasGradient>
-    CreateLinearGradient(double aX0, double aY0, double aX1, double aY1) override;
-  already_AddRefed<CanvasGradient>
-    CreateRadialGradient(double aX0, double aY0, double aR0,
-                         double aX1, double aY1, double aR1,
-                         ErrorResult& aError) override;
-  already_AddRefed<CanvasPattern>
-    CreatePattern(const CanvasImageSource& aElement,
-                  const nsAString& aRepeat, ErrorResult& aError) override;
 
   double ShadowOffsetX() override
   {
@@ -434,7 +399,8 @@ public:
 
   // nsISupports interface + CC
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS(CanvasRenderingContext2D)
+  NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS_AMBIGUOUS(CanvasRenderingContext2D,
+                                                                   nsICanvasRenderingContextInternal)
 
   enum class CanvasMultiGetterType : uint8_t {
     STRING = 0,
@@ -518,27 +484,11 @@ protected:
   static mozilla::gfx::DrawTarget* sErrorTarget;
 
   // Some helpers.  Doesn't modify a color on failure.
-  void SetStyleFromUnion(const StringOrCanvasGradientOrCanvasPattern& aValue,
-                         Style aWhichStyle);
-  void SetStyleFromString(const nsAString& aStr, Style aWhichStyle);
-
-  void SetStyleFromGradient(CanvasGradient& aGradient, Style aWhichStyle)
-  {
-    CurrentState().SetGradientStyle(aWhichStyle, &aGradient);
-  }
-
-  void SetStyleFromPattern(CanvasPattern& aPattern, Style aWhichStyle)
-  {
-    CurrentState().SetPatternStyle(aWhichStyle, &aPattern);
-  }
-
   void GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
                        Style aWhichStyle);
 
   // Returns whether a color was successfully parsed.
-  bool ParseColor(const nsAString& aString, nscolor* aColor);
-
-  static void StyleColorToString(const nscolor& aColor, nsAString& aStr);
+  virtual bool ParseColor(const nsAString& aString, nscolor* aColor) override;
 
    // Returns whether a filter was successfully parsed.
   bool ParseFilter(const nsAString& aString,

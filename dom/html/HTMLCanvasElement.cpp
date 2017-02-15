@@ -570,7 +570,8 @@ HTMLCanvasElement::CopyInnerTo(Element* aDest)
     nsCOMPtr<nsISupports> cxt;
     dest->GetContext(NS_LITERAL_STRING("2d"), getter_AddRefs(cxt));
     RefPtr<CanvasRenderingContext2D> context2d =
-      static_cast<CanvasRenderingContext2D*>(cxt.get());
+      static_cast<CanvasRenderingContext2D*>(
+        static_cast<nsICanvasRenderingContextInternal*>(cxt.get()));
     if (context2d && !mPrintCallback) {
       CanvasImageSource source;
       source.SetAsHTMLCanvasElement() = this;
