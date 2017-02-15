@@ -80,9 +80,6 @@ public:
   }
 
   void SetFilter(const nsAString& aFilter, mozilla::ErrorResult& aError);
-  void ClearRect(double aX, double aY, double aW, double aH) override;
-  void FillRect(double aX, double aY, double aW, double aH) override;
-  void StrokeRect(double aX, double aY, double aW, double aH) override;
   void BeginPath();
   void Fill(const CanvasWindingRule& aWinding);
   void Fill(const CanvasPath& aPath, const CanvasWindingRule& aWinding);
@@ -294,7 +291,7 @@ public:
   // Eventually this should be deprecated. Keeping for now to keep the binding functional.
   void Demote();
 
-  nsresult Redraw();
+  virtual nsresult Redraw() override;
 
   virtual int32_t GetWidth() const override;
   virtual int32_t GetHeight() const override;
@@ -357,7 +354,7 @@ public:
   virtual void DidRefresh() override;
 
   // this rect is in mTarget's current user space
-  void RedrawUser(const gfxRect& aR);
+  virtual void RedrawUser(const gfxRect& aR) override;
 
   // nsISupports interface + CC
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -416,6 +413,7 @@ public:
   bool AllowOpenGLCanvas() const;
 
 protected:
+  HTMLCanvasElement* GetCanvasElement() override { return mCanvasElement; }
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
                              uint32_t aWidth, uint32_t aHeight,
                              JSObject** aRetval);
@@ -546,12 +544,6 @@ protected:
   mozilla::gfx::SurfaceFormat GetSurfaceFormat() const;
 
   /**
-   * Returns true if we know for sure that the pattern for a given style is opaque.
-   * Usefull to know if we can discard the content below in certain situations.
-   */
-  bool PatternIsOpaque(Style aStyle) const;
-
-  /**
    * Update CurrentState().filter with the filter description for
    * CurrentState().filterChain.
    * Flushes the PresShell, so the world can change if you call this function.
@@ -594,7 +586,6 @@ protected:
   layers::LayersBackend mCompositorBackend;
 
   // Member vars
-  int32_t mWidth, mHeight;
 
   // This is true when the canvas is valid, but of zero size, this requires
   // specific behavior on some operations.
@@ -698,24 +689,10 @@ protected:
   nsTArray<RegionInfo> mHitRegionsOptions;
 
   /**
-    * Returns true if a shadow should be drawn along with a
-    * drawing operation.
-    */
-  bool NeedToDrawShadow()
-  {
-    const ContextState& state = CurrentState();
-
-    // The spec says we should not draw shadows if the operator is OVER.
-    // If it's over and the alpha value is zero, nothing needs to be drawn.
-    return NS_GET_A(state.shadowColor) != 0 &&
-      (state.shadowBlur != 0.f || state.shadowOffset.x != 0.f || state.shadowOffset.y != 0.f);
-  }
-
-  /**
     * Returns true if the result of a drawing operation should be
     * drawn with a filter.
     */
-  bool NeedToApplyFilter()
+  virtual bool NeedToApplyFilter() override
   {
     return EnsureUpdatedFilter().mPrimitives.Length() > 0;
   }
@@ -733,23 +710,6 @@ protected:
     MOZ_ASSERT(CurrentState().filterSourceGraphicTainted == isWriteOnly);
     return CurrentState().filter;
   }
-
-  bool NeedToCalculateBounds()
-  {
-    return NeedToDrawShadow() || NeedToApplyFilter();
-  }
-
-  mozilla::gfx::CompositionOp UsedOperation()
-  {
-    if (NeedToDrawShadow() || NeedToApplyFilter()) {
-      // In this case the shadow or filter rendering will use the operator.
-      return mozilla::gfx::CompositionOp::OP_OVER;
-    }
-
-    return CurrentState().op;
-  }
-
-  // text
 
 protected:
   enum class TextDrawOperation : uint8_t {
@@ -774,7 +734,6 @@ protected:
 
   bool CheckSizeForSkiaGL(mozilla::gfx::IntSize aSize);
 
-  friend class CanvasGeneralPattern;
   friend class CanvasFilterChainObserver;
   friend class AdjustedTarget;
   friend class AdjustedTargetForShadow;
