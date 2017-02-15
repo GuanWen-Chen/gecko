@@ -357,18 +357,6 @@ public:
     SetFont(aMozTextStyle, aError);
   }
 
-  bool ImageSmoothingEnabled() override
-  {
-    return CurrentState().imageSmoothingEnabled;
-  }
-
-  void SetImageSmoothingEnabled(bool aImageSmoothingEnabled) override
-  {
-    if (aImageSmoothingEnabled != CurrentState().imageSmoothingEnabled) {
-      CurrentState().imageSmoothingEnabled = aImageSmoothingEnabled;
-    }
-  }
-
   void DrawWindow(nsGlobalWindow& aWindow, double aX, double aY,
 		  double aW, double aH,
                   const nsAString& aBgColor, uint32_t aFlags,

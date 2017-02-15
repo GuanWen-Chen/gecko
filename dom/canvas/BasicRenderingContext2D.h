@@ -87,8 +87,18 @@ public:
   //
   // CanvasImageSmoothing
   //
-  virtual bool ImageSmoothingEnabled() = 0;
-  virtual void SetImageSmoothingEnabled(bool aImageSmoothingEnabled) = 0;
+  bool ImageSmoothingEnabled()
+  {
+    return CurrentState().imageSmoothingEnabled;
+  }
+
+  void SetImageSmoothingEnabled(bool aImageSmoothingEnabled)
+  {
+    if (aImageSmoothingEnabled != CurrentState().imageSmoothingEnabled) {
+      CurrentState().imageSmoothingEnabled = aImageSmoothingEnabled;
+    }
+  }
+
 
   //
   // CanvasFillStrokeStyles
