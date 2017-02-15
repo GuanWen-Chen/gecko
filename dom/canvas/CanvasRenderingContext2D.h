@@ -74,49 +74,11 @@ public:
     return mCanvasElement->GetOriginalCanvas();
   }
 
-  double ShadowOffsetX() override
-  {
-    return CurrentState().shadowOffset.x;
-  }
-
-  void SetShadowOffsetX(double aShadowOffsetX) override
-  {
-    CurrentState().shadowOffset.x = ToFloat(aShadowOffsetX);
-  }
-
-  double ShadowOffsetY() override
-  {
-    return CurrentState().shadowOffset.y;
-  }
-
-  void SetShadowOffsetY(double aShadowOffsetY) override
-  {
-    CurrentState().shadowOffset.y = ToFloat(aShadowOffsetY);
-  }
-
-  double ShadowBlur() override
-  {
-    return CurrentState().shadowBlur;
-  }
-
-  void SetShadowBlur(double aShadowBlur) override
-  {
-    if (aShadowBlur >= 0.0) {
-      CurrentState().shadowBlur = ToFloat(aShadowBlur);
-    }
-  }
-
-  void GetShadowColor(nsAString& aShadowColor) override
-  {
-    StyleColorToString(CurrentState().shadowColor, aShadowColor);
-  }
-
   void GetFilter(nsAString& aFilter)
   {
     aFilter = CurrentState().filterString;
   }
 
-  void SetShadowColor(const nsAString& aShadowColor) override;
   void SetFilter(const nsAString& aFilter, mozilla::ErrorResult& aError);
   void ClearRect(double aX, double aY, double aW, double aH) override;
   void FillRect(double aX, double aY, double aW, double aH) override;

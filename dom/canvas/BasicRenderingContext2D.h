@@ -156,14 +156,44 @@ public:
   //
   // CanvasShadowStyles
   //
-  virtual double ShadowOffsetX() = 0;
-  virtual void SetShadowOffsetX(double aShadowOffsetX) = 0;
-  virtual double ShadowOffsetY() = 0;
-  virtual void SetShadowOffsetY(double aShadowOffsetY) = 0;
-  virtual double ShadowBlur() = 0;
-  virtual void SetShadowBlur(double aShadowBlur) = 0;
-  virtual void GetShadowColor(nsAString& aShadowColor) = 0;
-  virtual void SetShadowColor(const nsAString& aShadowColor) = 0;
+  double ShadowOffsetX()
+  {
+    return CurrentState().shadowOffset.x;
+  }
+
+  void SetShadowOffsetX(double aShadowOffsetX)
+  {
+    CurrentState().shadowOffset.x = ToFloat(aShadowOffsetX);
+  }
+
+  double ShadowOffsetY()
+  {
+    return CurrentState().shadowOffset.y;
+  }
+
+  void SetShadowOffsetY(double aShadowOffsetY)
+  {
+    CurrentState().shadowOffset.y = ToFloat(aShadowOffsetY);
+  }
+
+  double ShadowBlur()
+  {
+    return CurrentState().shadowBlur;
+  }
+
+  void SetShadowBlur(double aShadowBlur)
+  {
+    if (aShadowBlur >= 0.0) {
+      CurrentState().shadowBlur = ToFloat(aShadowBlur);
+    }
+  }
+
+  void GetShadowColor(nsAString& aShadowColor)
+  {
+    StyleColorToString(CurrentState().shadowColor, aShadowColor);
+  }
+
+  void SetShadowColor(const nsAString& aShadowColor);
 
   //
   // CanvasRect
