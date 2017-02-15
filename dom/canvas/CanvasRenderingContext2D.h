@@ -76,15 +76,6 @@ public:
     return mCanvasElement->GetOriginalCanvas();
   }
 
-  void Scale(double aX, double aY, mozilla::ErrorResult& aError) override;
-  void Rotate(double aAngle, mozilla::ErrorResult& aError) override;
-  void Translate(double aX, double aY, mozilla::ErrorResult& aError) override;
-  void Transform(double aM11, double aM12, double aM21, double aM22,
-                 double aDx, double aDy, mozilla::ErrorResult& aError) override;
-  void SetTransform(double aM11, double aM12, double aM21, double aM22,
-                    double aDx, double aDy, mozilla::ErrorResult& aError) override;
-  void ResetTransform(mozilla::ErrorResult& aError) override;
-
   double GlobalAlpha() override
   {
     return CurrentState().globalAlpha;
@@ -558,8 +549,6 @@ protected:
   static uint32_t sNumLivingContexts;
 
   static mozilla::gfx::DrawTarget* sErrorTarget;
-
-  void SetTransformInternal(const mozilla::gfx::Matrix& aTransform);
 
   // Some helpers.  Doesn't modify a color on failure.
   void SetStyleFromUnion(const StringOrCanvasGradientOrCanvasPattern& aValue,

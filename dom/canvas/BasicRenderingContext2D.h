@@ -7,10 +7,12 @@
 
 #include "FilterSupport.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
+#include "mozilla/gfx/Matrix.h"
 #include "nsStyleStruct.h"
 #include "nsSVGEffects.h"
 
 using mozilla::gfx::FilterDescription;
+using mozilla::gfx::Matrix;
 
 namespace mozilla {
 namespace dom {
@@ -50,26 +52,14 @@ public:
   //
   // CanvasTransform
   //
-  virtual void Scale(double aX, double aY, mozilla::ErrorResult& aError) = 0;
-  virtual void Rotate(double aAngle, mozilla::ErrorResult& aError) = 0;
-  virtual void Translate(double aX,
-                         double aY,
-                         mozilla::ErrorResult& aError) = 0;
-  virtual void Transform(double aM11,
-                         double aM12,
-                         double aM21,
-                         double aM22,
-                         double aDx,
-                         double aDy,
-                         mozilla::ErrorResult& aError) = 0;
-  virtual void SetTransform(double aM11,
-                            double aM12,
-                            double aM21,
-                            double aM22,
-                            double aDx,
-                            double aDy,
-                            mozilla::ErrorResult& aError) = 0;
-  virtual void ResetTransform(mozilla::ErrorResult& aError) = 0;
+  void Scale(double aX, double aY, mozilla::ErrorResult& aError);
+  void Rotate(double aAngle, mozilla::ErrorResult& aError);
+  void Translate(double aX, double aY, mozilla::ErrorResult& aError);
+  void Transform(double aM11, double aM12, double aM21, double aM22,
+                 double aDx, double aDy, mozilla::ErrorResult& aError);
+  void SetTransform(double aM11, double aM12, double aM21, double aM22,
+                    double aDx, double aDy, mozilla::ErrorResult& aError);
+  void ResetTransform(mozilla::ErrorResult& aError);
 
   //
   // CanvasCompositing
@@ -244,14 +234,14 @@ protected:
       : clip(aClip)
     {}
 
-    explicit ClipState(const mozilla::gfx::Matrix& aTransform)
+    explicit ClipState(const Matrix& aTransform)
       : transform(aTransform)
     {}
 
     bool IsClip() const { return !!clip; }
 
     RefPtr<mozilla::gfx::Path> clip;
-    mozilla::gfx::Matrix transform;
+    Matrix transform;
   };
 
   // state stack handling
@@ -362,7 +352,7 @@ protected:
 
   nscolor shadowColor;
 
-  mozilla::gfx::Matrix transform;
+  Matrix transform;
   mozilla::gfx::Point shadowOffset;
   mozilla::gfx::Float lineWidth;
   mozilla::gfx::Float miterLimit;
@@ -428,7 +418,7 @@ protected:
   RefPtr<mozilla::gfx::Path> mPath;
   RefPtr<mozilla::gfx::PathBuilder> mPathBuilder;
   bool mPathTransformWillUpdate;
-  mozilla::gfx::Matrix mPathToDS;
+  Matrix mPathToDS;
 
 protected:
   virtual bool AlreadyShutDown() const = 0;
@@ -458,12 +448,13 @@ protected:
     return mStyleStack[mStyleStack.Length() - 1];
   }
 
-
   /**
    * Needs to be called before updating the transform. This makes a call to
    * EnsureTarget() so you don't have to.
    */
   void TransformWillUpdate();
+
+  void SetTransformInternal(const Matrix& aTransform);
 };
 
 } // namespace dom
