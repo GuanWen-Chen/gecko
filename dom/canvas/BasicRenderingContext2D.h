@@ -7,10 +7,11 @@
 
 #include "FilterSupport.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
-#include "mozilla/gfx/Matrix.h"
+#include "mozilla/gfx/2D.h"
 #include "nsStyleStruct.h"
 #include "nsSVGEffects.h"
 
+using mozilla::gfx::CompositionOp;
 using mozilla::gfx::FilterDescription;
 using mozilla::gfx::Matrix;
 
@@ -64,12 +65,24 @@ public:
   //
   // CanvasCompositing
   //
-  virtual double GlobalAlpha() = 0;
-  virtual void SetGlobalAlpha(double aGlobalAlpha) = 0;
-  virtual void GetGlobalCompositeOperation(nsAString& aOp,
-                                           mozilla::ErrorResult& aError) = 0;
-  virtual void SetGlobalCompositeOperation(const nsAString& aOp,
-                                           mozilla::ErrorResult& aError) = 0;
+  double GlobalAlpha()
+  {
+    return CurrentState().globalAlpha;
+  }
+
+  // Useful for silencing cast warnings
+  static mozilla::gfx::Float ToFloat(double aValue) { return mozilla::gfx::Float(aValue); }
+
+  void SetGlobalAlpha(double aGlobalAlpha)
+  {
+    if (aGlobalAlpha >= 0.0 && aGlobalAlpha <= 1.0) {
+      CurrentState().globalAlpha = ToFloat(aGlobalAlpha);
+    }
+  }
+  void GetGlobalCompositeOperation(nsAString& aOp,
+                                   mozilla::ErrorResult& aError);
+  void SetGlobalCompositeOperation(const nsAString& aOp,
+                                   mozilla::ErrorResult& aError);
 
   //
   // CanvasImageSmoothing
@@ -255,7 +268,7 @@ protected:
                    globalAlpha(1.0f),
                    shadowBlur(0.0),
                    dashOffset(0.0f),
-                   op(mozilla::gfx::CompositionOp::OP_OVER),
+                   op(CompositionOp::OP_OVER),
                    fillRule(mozilla::gfx::FillRule::FILL_WINDING),
                    lineCap(mozilla::gfx::CapStyle::BUTT),
                    lineJoin(mozilla::gfx::JoinStyle::MITER_OR_BEVEL),
@@ -361,7 +374,7 @@ protected:
   nsTArray<mozilla::gfx::Float> dash;
   mozilla::gfx::Float dashOffset;
 
-  mozilla::gfx::CompositionOp op;
+  CompositionOp op;
   mozilla::gfx::FillRule fillRule;
   mozilla::gfx::CapStyle lineCap;
   mozilla::gfx::JoinStyle lineJoin;

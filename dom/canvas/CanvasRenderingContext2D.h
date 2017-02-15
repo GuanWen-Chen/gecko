@@ -20,7 +20,6 @@
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 #include "mozilla/dom/CanvasPattern.h"
 #include "mozilla/gfx/Rect.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/UniquePtr.h"
 #include "gfx2DGlue.h"
 #include "imgIEncoder.h"
@@ -75,26 +74,6 @@ public:
     // corresponds to changes to the old bindings made in bug 745025
     return mCanvasElement->GetOriginalCanvas();
   }
-
-  double GlobalAlpha() override
-  {
-    return CurrentState().globalAlpha;
-  }
-
-  // Useful for silencing cast warnings
-  static mozilla::gfx::Float ToFloat(double aValue) { return mozilla::gfx::Float(aValue); }
-
-  void SetGlobalAlpha(double aGlobalAlpha) override
-  {
-    if (aGlobalAlpha >= 0.0 && aGlobalAlpha <= 1.0) {
-      CurrentState().globalAlpha = ToFloat(aGlobalAlpha);
-    }
-  }
-
-  void GetGlobalCompositeOperation(nsAString& aOp,
-                                   mozilla::ErrorResult& aError) override;
-  void SetGlobalCompositeOperation(const nsAString& aOp,
-                                   mozilla::ErrorResult& aError) override;
 
   void
   GetStrokeStyle(OwningStringOrCanvasGradientOrCanvasPattern& aValue) override
