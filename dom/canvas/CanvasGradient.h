@@ -9,13 +9,18 @@
 #include "nsTArray.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
-#include "mozilla/dom/CanvasRenderingContext2D.h"
+#include "mozilla/dom/BasicRenderingContext2D.h"
 #include "mozilla/gfx/2D.h"
 #include "nsWrapperCache.h"
 #include "gfxGradientCache.h"
 
+using mozilla::gfx::Float;
+using mozilla::gfx::Point;
+
 namespace mozilla {
 namespace dom {
+
+class BasicRenderingContext2D;
 
 class CanvasGradient : public nsWrapperCache
 {
@@ -34,19 +39,7 @@ public:
   }
 
   mozilla::gfx::GradientStops *
-  GetGradientStopsForTarget(mozilla::gfx::DrawTarget *aRT)
-  {
-    if (mStops && mStops->GetBackendType() == aRT->GetBackendType()) {
-      return mStops;
-    }
-
-    mStops =
-      gfx::gfxGradientCache::GetOrCreateGradientStops(aRT,
-                                                      mRawStops,
-                                                      gfx::ExtendMode::CLAMP);
-
-    return mStops;
-  }
+  GetGradientStopsForTarget(mozilla::gfx::DrawTarget *aRT);
 
   // WebIDL
   void AddColorStop(float offset, const nsAString& colorstr, ErrorResult& rv);
@@ -56,7 +49,7 @@ public:
     return CanvasGradientBinding::Wrap(aCx, this, aGivenProto);
   }
 
-  CanvasRenderingContext2D* GetParentObject()
+  BasicRenderingContext2D* GetParentObject()
   {
     return mContext;
   }
@@ -64,17 +57,58 @@ public:
 protected:
   friend struct CanvasBidiProcessor;
 
-  CanvasGradient(CanvasRenderingContext2D* aContext, Type aType)
+  CanvasGradient(BasicRenderingContext2D* aContext, Type aType)
     : mContext(aContext)
     , mType(aType)
   {
   }
 
-  RefPtr<CanvasRenderingContext2D> mContext;
+  RefPtr<BasicRenderingContext2D> mContext;
   nsTArray<mozilla::gfx::GradientStop> mRawStops;
   RefPtr<mozilla::gfx::GradientStops> mStops;
   Type mType;
   virtual ~CanvasGradient() {}
+};
+
+class CanvasRadialGradient : public CanvasGradient
+{
+public:
+  CanvasRadialGradient(BasicRenderingContext2D* aContext,
+                       const Point& aBeginOrigin, Float aBeginRadius,
+                       const Point& aEndOrigin, Float aEndRadius)
+    : CanvasGradient(aContext, Type::RADIAL)
+    , mCenter1(aBeginOrigin)
+    , mCenter2(aEndOrigin)
+    , mRadius1(aBeginRadius)
+    , mRadius2(aEndRadius)
+  {
+  }
+
+  Point mCenter1;
+  Point mCenter2;
+  Float mRadius1;
+  Float mRadius2;
+};
+
+class CanvasLinearGradient : public CanvasGradient
+{
+public:
+  CanvasLinearGradient(BasicRenderingContext2D* aContext,
+                       const Point& aBegin, const Point& aEnd)
+    : CanvasGradient(aContext, Type::LINEAR)
+    , mBegin(aBegin)
+    , mEnd(aEnd)
+  {
+  }
+
+protected:
+  friend struct CanvasBidiProcessor;
+  friend class CanvasGeneralPattern;
+
+  // Beginning of linear gradient.
+  Point mBegin;
+  // End of linear gradient.
+  Point mEnd;
 };
 
 } // namespace dom

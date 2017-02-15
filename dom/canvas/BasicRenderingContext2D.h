@@ -6,6 +6,9 @@
 #define BasicRenderingContext2D_h
 
 #include "FilterSupport.h"
+#include "gfxTextRun.h"
+#include "mozilla/dom/CanvasGradient.h"
+#include "mozilla/dom/CanvasPattern.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 #include "mozilla/gfx/2D.h"
 #include "nsStyleStruct.h"
@@ -18,6 +21,10 @@ using mozilla::gfx::Matrix;
 namespace mozilla {
 namespace dom {
 
+ #define NS_BASICRENDERINGCONTEXT2D_IID \
+ { 0xbd7f3f74, 0x5ed8, 0x4451, \
+  { 0x89, 0x95, 0x1c, 0x6a, 0x82, 0xeb, 0xef, 0x9f} }
+
 class HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap;
 typedef HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap
   CanvasImageSource;
@@ -27,7 +34,7 @@ extern const mozilla::gfx::Float SIGMA_MAX;
 /*
  * BasicRenderingContext2D
  */
-class BasicRenderingContext2D
+class BasicRenderingContext2D : public nsISupports
 {
 public:
   enum RenderingMode {
@@ -41,6 +48,9 @@ public:
   // sErrorTarget.
   RefPtr<mozilla::gfx::DrawTarget> mTarget;
 
+  NS_DECLARE_STATIC_IID_ACCESSOR(NS_BASICRENDERINGCONTEXT2D_IID)
+protected:
+  ~BasicRenderingContext2D(){}
 public:
   explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
     : mPathTransformWillUpdate(false){};
@@ -103,18 +113,34 @@ public:
   //
   // CanvasFillStrokeStyles
   //
-  virtual void GetStrokeStyle(
-    OwningStringOrCanvasGradientOrCanvasPattern& aValue) = 0;
-  virtual void SetStrokeStyle(
-    const StringOrCanvasGradientOrCanvasPattern& aValue) = 0;
-  virtual void GetFillStyle(
-    OwningStringOrCanvasGradientOrCanvasPattern& aValue) = 0;
-  virtual void SetFillStyle(
-    const StringOrCanvasGradientOrCanvasPattern& aValue) = 0;
+  void
+  GetStrokeStyle(OwningStringOrCanvasGradientOrCanvasPattern& aValue)
+  {
+    GetStyleAsUnion(aValue, Style::STROKE);
+  }
+
+  void
+  SetStrokeStyle(const StringOrCanvasGradientOrCanvasPattern& aValue)
+  {
+    SetStyleFromUnion(aValue, Style::STROKE);
+  }
+
+  void
+  GetFillStyle(OwningStringOrCanvasGradientOrCanvasPattern& aValue)
+  {
+    GetStyleAsUnion(aValue, Style::FILL);
+  }
+
+  void
+  SetFillStyle(const StringOrCanvasGradientOrCanvasPattern& aValue)
+  {
+    SetStyleFromUnion(aValue, Style::FILL);
+  }
+
   virtual already_AddRefed<CanvasGradient> CreateLinearGradient(double aX0,
                                                                 double aY0,
                                                                 double aX1,
-                                                                double aY1) = 0;
+                                                                double aY1);
   virtual already_AddRefed<CanvasGradient> CreateRadialGradient(
     double aX0,
     double aY0,
@@ -122,11 +148,11 @@ public:
     double aX1,
     double aY1,
     double aR1,
-    ErrorResult& aError) = 0;
+    ErrorResult& aError);
   virtual already_AddRefed<CanvasPattern> CreatePattern(
     const CanvasImageSource& aElement,
     const nsAString& aRepeat,
-    ErrorResult& aError) = 0;
+    ErrorResult& aError);
   //
   // CanvasShadowStyles
   //
@@ -478,7 +504,33 @@ protected:
   void TransformWillUpdate();
 
   void SetTransformInternal(const Matrix& aTransform);
+
+  // Some helpers.  Doesn't modify a color on failure.
+  void SetStyleFromUnion(const StringOrCanvasGradientOrCanvasPattern& aValue,
+                         Style aWhichStyle);
+  void SetStyleFromString(const nsAString& aStr, Style aWhichStyle);
+
+  void SetStyleFromGradient(CanvasGradient& aGradient, Style aWhichStyle)
+  {
+    CurrentState().SetGradientStyle(aWhichStyle, &aGradient);
+  }
+
+  void SetStyleFromPattern(CanvasPattern& aPattern, Style aWhichStyle)
+  {
+    CurrentState().SetPatternStyle(aWhichStyle, &aPattern);
+  }
+
+  // Returns whether a color was successfully parsed.
+  virtual bool ParseColor(const nsAString& aString, nscolor* aColor) = 0;
+
+  static void StyleColorToString(const nscolor& aColor, nsAString& aStr);
+
+  void GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
+                       Style aWhichStyle);
 };
+
+ NS_DEFINE_STATIC_IID_ACCESSOR(BasicRenderingContext2D,
+                               NS_BASICRENDERINGCONTEXT2D_IID)
 
 } // namespace dom
 } // namespace mozilla

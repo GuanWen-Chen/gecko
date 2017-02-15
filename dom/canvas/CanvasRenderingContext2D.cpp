@@ -31,8 +31,6 @@
 #include "nsComputedDOMStyle.h"
 #include "nsStyleSet.h"
 
-#include "nsPrintfCString.h"
-
 #include "nsReadableUtils.h"
 
 #include "nsColor.h"
@@ -63,7 +61,6 @@
 #include "LayerUserData.h"
 #include "CanvasUtils.h"
 #include "nsIMemoryReporter.h"
-#include "nsStyleUtil.h"
 #include "CanvasImageCache.h"
 
 #include <algorithm>
@@ -185,47 +182,6 @@ public:
 };
 
 NS_IMPL_ISUPPORTS(Canvas2dPixelsReporter, nsIMemoryReporter)
-
-class CanvasRadialGradient : public CanvasGradient
-{
-public:
-  CanvasRadialGradient(CanvasRenderingContext2D* aContext,
-                       const Point& aBeginOrigin, Float aBeginRadius,
-                       const Point& aEndOrigin, Float aEndRadius)
-    : CanvasGradient(aContext, Type::RADIAL)
-    , mCenter1(aBeginOrigin)
-    , mCenter2(aEndOrigin)
-    , mRadius1(aBeginRadius)
-    , mRadius2(aEndRadius)
-  {
-  }
-
-  Point mCenter1;
-  Point mCenter2;
-  Float mRadius1;
-  Float mRadius2;
-};
-
-class CanvasLinearGradient : public CanvasGradient
-{
-public:
-  CanvasLinearGradient(CanvasRenderingContext2D* aContext,
-                       const Point& aBegin, const Point& aEnd)
-    : CanvasGradient(aContext, Type::LINEAR)
-    , mBegin(aBegin)
-    , mEnd(aEnd)
-  {
-  }
-
-protected:
-  friend struct CanvasBidiProcessor;
-  friend class CanvasGeneralPattern;
-
-  // Beginning of linear gradient.
-  Point mBegin;
-  // End of linear gradient.
-  Point mEnd;
-};
 
 bool
 CanvasRenderingContext2D::PatternIsOpaque(CanvasRenderingContext2D::Style aStyle) const
@@ -703,55 +659,6 @@ private:
   UniquePtr<AdjustedTargetForFilter> mFilterTarget;
 };
 
-void
-CanvasPattern::SetTransform(SVGMatrix& aMatrix)
-{
-  mTransform = ToMatrix(aMatrix.GetMatrix());
-}
-
-void
-CanvasGradient::AddColorStop(float aOffset, const nsAString& aColorstr, ErrorResult& aRv)
-{
-  if (aOffset < 0.0 || aOffset > 1.0) {
-    aRv.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
-    return;
-  }
-
-  nsCSSValue value;
-  nsCSSParser parser;
-  if (!parser.ParseColorString(aColorstr, nullptr, 0, value)) {
-    aRv.Throw(NS_ERROR_DOM_SYNTAX_ERR);
-    return;
-  }
-
-  nscolor color;
-  nsCOMPtr<nsIPresShell> presShell = mContext ? mContext->GetPresShell() : nullptr;
-  if (!nsRuleNode::ComputeColor(value, presShell ? presShell->GetPresContext() : nullptr,
-                                nullptr, color)) {
-    aRv.Throw(NS_ERROR_DOM_SYNTAX_ERR);
-    return;
-  }
-
-  mStops = nullptr;
-
-  GradientStop newStop;
-
-  newStop.offset = aOffset;
-  newStop.color = Color::FromABGR(color);
-
-  mRawStops.AppendElement(newStop);
-}
-
-NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(CanvasGradient, AddRef)
-NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(CanvasGradient, Release)
-
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(CanvasGradient, mContext)
-
-NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(CanvasPattern, AddRef)
-NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(CanvasPattern, Release)
-
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(CanvasPattern, mContext)
-
 class CanvasShutdownObserver final : public nsIObserver
 {
 public:
@@ -1041,9 +948,10 @@ NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_THIS_BEGIN(CanvasRenderingContext2D)
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_THIS_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(CanvasRenderingContext2D)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsICanvasRenderingContextInternal)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY(nsICanvasRenderingContextInternal)
-  NS_INTERFACE_MAP_ENTRY(nsISupports)
+  NS_INTERFACE_MAP_ENTRY(BasicRenderingContext2D)
 NS_INTERFACE_MAP_END
 
 /**
@@ -1206,57 +1114,7 @@ CanvasRenderingContext2D::RemoveShutdownObserver()
   }
 }
 
-void
-CanvasRenderingContext2D::SetStyleFromString(const nsAString& aStr,
-                                             Style aWhichStyle)
-{
-  MOZ_ASSERT(!aStr.IsVoid());
-
-  nscolor color;
-  if (!ParseColor(aStr, &color)) {
-    return;
-  }
-
-  CurrentState().SetColorStyle(aWhichStyle, color);
-}
-
-void
-CanvasRenderingContext2D::GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
-                                          Style aWhichStyle)
-{
-  const ContextState &state = CurrentState();
-  if (state.patternStyles[aWhichStyle]) {
-    aValue.SetAsCanvasPattern() = state.patternStyles[aWhichStyle];
-  } else if (state.gradientStyles[aWhichStyle]) {
-    aValue.SetAsCanvasGradient() = state.gradientStyles[aWhichStyle];
-  } else {
-    StyleColorToString(state.colorStyles[aWhichStyle], aValue.SetAsString());
-  }
-}
-
 // static
-void
-CanvasRenderingContext2D::StyleColorToString(const nscolor& aColor, nsAString& aStr)
-{
-  // We can't reuse the normal CSS color stringification code,
-  // because the spec calls for a different algorithm for canvas.
-  if (NS_GET_A(aColor) == 255) {
-    CopyUTF8toUTF16(nsPrintfCString("#%02x%02x%02x",
-                                    NS_GET_R(aColor),
-                                    NS_GET_G(aColor),
-                                    NS_GET_B(aColor)),
-                    aStr);
-  } else {
-    CopyUTF8toUTF16(nsPrintfCString("rgba(%d, %d, %d, ",
-                                    NS_GET_R(aColor),
-                                    NS_GET_G(aColor),
-                                    NS_GET_B(aColor)),
-                    aStr);
-    aStr.AppendFloat(nsStyleUtil::ColorComponentToFloat(NS_GET_A(aColor)));
-    aStr.Append(')');
-  }
-}
-
 nsresult
 CanvasRenderingContext2D::Redraw()
 {
@@ -2250,29 +2108,6 @@ CanvasRenderingContext2D::GetMozCurrentTransformInverse(JSContext* aCx,
 //
 // colors
 //
-
-void
-CanvasRenderingContext2D::SetStyleFromUnion(const StringOrCanvasGradientOrCanvasPattern& aValue,
-                                            Style aWhichStyle)
-{
-  if (aValue.IsString()) {
-    SetStyleFromString(aValue.GetAsString(), aWhichStyle);
-    return;
-  }
-
-  if (aValue.IsCanvasGradient()) {
-    SetStyleFromGradient(aValue.GetAsCanvasGradient(), aWhichStyle);
-    return;
-  }
-
-  if (aValue.IsCanvasPattern()) {
-    SetStyleFromPattern(aValue.GetAsCanvasPattern(), aWhichStyle);
-    return;
-  }
-
-  MOZ_ASSERT_UNREACHABLE("Invalid union value");
-}
-
 void
 CanvasRenderingContext2D::SetFillRule(const nsAString& aString)
 {
@@ -2297,141 +2132,6 @@ CanvasRenderingContext2D::GetFillRule(nsAString& aString)
   case FillRule::FILL_EVEN_ODD:
     aString.AssignLiteral("evenodd"); break;
   }
-}
-//
-// gradients and patterns
-//
-already_AddRefed<CanvasGradient>
-CanvasRenderingContext2D::CreateLinearGradient(double aX0, double aY0, double aX1, double aY1)
-{
-  RefPtr<CanvasGradient> grad =
-    new CanvasLinearGradient(this, Point(aX0, aY0), Point(aX1, aY1));
-
-  return grad.forget();
-}
-
-already_AddRefed<CanvasGradient>
-CanvasRenderingContext2D::CreateRadialGradient(double aX0, double aY0, double aR0,
-                                               double aX1, double aY1, double aR1,
-                                               ErrorResult& aError)
-{
-  if (aR0 < 0.0 || aR1 < 0.0) {
-    aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
-    return nullptr;
-  }
-
-  RefPtr<CanvasGradient> grad =
-    new CanvasRadialGradient(this, Point(aX0, aY0), aR0, Point(aX1, aY1), aR1);
-
-  return grad.forget();
-}
-
-already_AddRefed<CanvasPattern>
-CanvasRenderingContext2D::CreatePattern(const CanvasImageSource& aSource,
-                                        const nsAString& aRepeat,
-                                        ErrorResult& aError)
-{
-  CanvasPattern::RepeatMode repeatMode =
-    CanvasPattern::RepeatMode::NOREPEAT;
-
-  if (aRepeat.IsEmpty() || aRepeat.EqualsLiteral("repeat")) {
-    repeatMode = CanvasPattern::RepeatMode::REPEAT;
-  } else if (aRepeat.EqualsLiteral("repeat-x")) {
-    repeatMode = CanvasPattern::RepeatMode::REPEATX;
-  } else if (aRepeat.EqualsLiteral("repeat-y")) {
-    repeatMode = CanvasPattern::RepeatMode::REPEATY;
-  } else if (aRepeat.EqualsLiteral("no-repeat")) {
-    repeatMode = CanvasPattern::RepeatMode::NOREPEAT;
-  } else {
-    aError.Throw(NS_ERROR_DOM_SYNTAX_ERR);
-    return nullptr;
-  }
-
-  Element* htmlElement;
-  if (aSource.IsHTMLCanvasElement()) {
-    HTMLCanvasElement* canvas = &aSource.GetAsHTMLCanvasElement();
-    htmlElement = canvas;
-
-    nsIntSize size = canvas->GetSize();
-    if (size.width == 0 || size.height == 0) {
-      aError.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
-      return nullptr;
-    }
-
-    // Special case for Canvas, which could be an Azure canvas!
-    nsICanvasRenderingContextInternal *srcCanvas = canvas->GetContextAtIndex(0);
-    if (srcCanvas) {
-      // This might not be an Azure canvas!
-      RefPtr<SourceSurface> srcSurf = srcCanvas->GetSurfaceSnapshot();
-      if (!srcSurf) {
-        JSContext* context = nsContentUtils::GetCurrentJSContext();
-        if (context) {
-          JS_ReportWarningASCII(context,
-                                "CanvasRenderingContext2D.createPattern()"
-                                " failed to snapshot source canvas.");
-        }
-        aError.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
-        return nullptr;
-      }
-
-      RefPtr<CanvasPattern> pat =
-        new CanvasPattern(this, srcSurf, repeatMode, htmlElement->NodePrincipal(), canvas->IsWriteOnly(), false);
-
-      return pat.forget();
-    }
-  } else if (aSource.IsHTMLImageElement()) {
-    HTMLImageElement* img = &aSource.GetAsHTMLImageElement();
-    if (img->IntrinsicState().HasState(NS_EVENT_STATE_BROKEN)) {
-      aError.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
-      return nullptr;
-    }
-
-    htmlElement = img;
-  } else if (aSource.IsHTMLVideoElement()) {
-    auto& video = aSource.GetAsHTMLVideoElement();
-    video.MarkAsContentSource(mozilla::dom::HTMLVideoElement::CallerAPI::CREATE_PATTERN);
-    htmlElement = &video;
-  } else {
-    // Special case for ImageBitmap
-    ImageBitmap& imgBitmap = aSource.GetAsImageBitmap();
-    EnsureTarget();
-    RefPtr<SourceSurface> srcSurf = imgBitmap.PrepareForDrawTarget(mTarget);
-    if (!srcSurf) {
-      JSContext* context = nsContentUtils::GetCurrentJSContext();
-      if (context) {
-        JS_ReportWarningASCII(context,
-                              "CanvasRenderingContext2D.createPattern()"
-                              " failed to prepare source ImageBitmap.");
-      }
-      aError.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
-      return nullptr;
-    }
-
-    // An ImageBitmap never taints others so we set principalForSecurityCheck to
-    // nullptr and set CORSUsed to true for passing the security check in
-    // CanvasUtils::DoDrawImageSecurityCheck().
-    RefPtr<CanvasPattern> pat =
-      new CanvasPattern(this, srcSurf, repeatMode, nullptr, false, true);
-
-    return pat.forget();
-  }
-
-  EnsureTarget();
-
-  // The canvas spec says that createPattern should use the first frame
-  // of animated images
-  nsLayoutUtils::SurfaceFromElementResult res =
-    nsLayoutUtils::SurfaceFromElement(htmlElement,
-      nsLayoutUtils::SFE_WANT_FIRST_FRAME, mTarget);
-
-  if (!res.GetSourceSurface()) {
-    return nullptr;
-  }
-
-  RefPtr<CanvasPattern> pat = new CanvasPattern(this, res.GetSourceSurface(), repeatMode,
-                                                res.mPrincipal, res.mIsWriteOnly,
-                                                res.mCORSUsed);
-  return pat.forget();
 }
 
 //
