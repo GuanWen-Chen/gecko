@@ -55,6 +55,111 @@ BasicRenderingContext2D::Restore()
 }
 
 //
+// transformations
+//
+
+void
+BasicRenderingContext2D::Scale(double aX, double aY, ErrorResult& aError)
+{
+  TransformWillUpdate();
+  if (!IsTargetValid()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+
+  Matrix newMatrix = mTarget->GetTransform();
+  newMatrix.PreScale(aX, aY);
+
+  SetTransformInternal(newMatrix);
+}
+
+void
+BasicRenderingContext2D::Rotate(double aAngle, ErrorResult& aError)
+{
+  TransformWillUpdate();
+  if (!IsTargetValid()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+
+  Matrix newMatrix = Matrix::Rotation(aAngle) * mTarget->GetTransform();
+
+  SetTransformInternal(newMatrix);
+}
+
+void
+BasicRenderingContext2D::Translate(double aX, double aY, ErrorResult& aError)
+{
+  TransformWillUpdate();
+  if (!IsTargetValid()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+
+  Matrix newMatrix = mTarget->GetTransform();
+  newMatrix.PreTranslate(aX, aY);
+
+  SetTransformInternal(newMatrix);
+}
+
+void
+BasicRenderingContext2D::Transform(double aM11, double aM12, double aM21,
+                                   double aM22, double aDx, double aDy,
+                                   ErrorResult& aError)
+{
+  TransformWillUpdate();
+  if (!IsTargetValid()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+
+  Matrix newMatrix(aM11, aM12, aM21, aM22, aDx, aDy);
+  newMatrix *= mTarget->GetTransform();
+
+  SetTransformInternal(newMatrix);
+}
+
+void
+BasicRenderingContext2D::SetTransform(double aM11, double aM12,
+                                      double aM21, double aM22,
+                                      double aDx, double aDy,
+                                      ErrorResult& aError)
+{
+  TransformWillUpdate();
+  if (!IsTargetValid()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+
+  SetTransformInternal(Matrix(aM11, aM12, aM21, aM22, aDx, aDy));
+}
+
+void
+BasicRenderingContext2D::SetTransformInternal(const Matrix& aTransform)
+{
+  if (!aTransform.IsFinite()) {
+    return;
+  }
+
+  // Save the transform in the clip stack to be able to replay clips properly.
+  auto& clipsAndTransforms = CurrentState().clipsAndTransforms;
+  if (clipsAndTransforms.IsEmpty() || clipsAndTransforms.LastElement().IsClip()) {
+    clipsAndTransforms.AppendElement(ClipState(aTransform));
+  } else {
+    // If the last item is a transform we can replace it instead of appending
+    // a new item.
+    clipsAndTransforms.LastElement().transform = aTransform;
+  }
+  mTarget->SetTransform(aTransform);
+}
+
+void
+BasicRenderingContext2D::ResetTransform(ErrorResult& aError)
+{
+  SetTransform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0, aError);
+}
+
+//
 // path bits
 //
 void
