@@ -73,6 +73,7 @@ EXPORTS.mozilla.dom += [
 
 # Canvas 2D and common sources
 UNIFIED_SOURCES += [
+    'AdjustedTarget.cpp',
     'BasicRenderingContext2D.cpp',
     'CanvasGradient.cpp',
     'CanvasImageCache.cpp',

@@ -3,6 +3,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "AdjustedTarget.h"
+#include "CanvasUtils.h"
+#include "gfxUtils.h"
 #include "mozilla/dom/BasicRenderingContext2D.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 #include "mozilla/dom/HTMLImageElement.h"
@@ -13,7 +16,17 @@
 #include "nsPrintfCString.h"
 #include "nsStyleUtil.h"
 
+using mozilla::gfx::AntialiasMode;
+using mozilla::gfx::CapStyle;
+using mozilla::gfx::Color;
+using mozilla::gfx::DrawOptions;
+using mozilla::gfx::ExtendMode;
+using mozilla::gfx::JoinStyle;
+using mozilla::gfx::IntSize;
+using mozilla::gfx::SamplingFilter;
 using mozilla::gfx::SourceSurface;
+using mozilla::gfx::StrokeOptions;
+using mozilla::gfx::ToDeviceColor;
 
 namespace mozilla {
 namespace dom{
@@ -37,6 +50,29 @@ const size_t MAX_STYLE_STACK_SIZE = 1024;
 /**
  ** BasicRenderingContext2D impl
  **/
+bool
+BasicRenderingContext2D::PatternIsOpaque(BasicRenderingContext2D::Style aStyle) const
+{
+  const ContextState& state = CurrentState();
+  if (state.globalAlpha < 1.0) {
+    return false;
+  }
+
+  if (state.patternStyles[aStyle] && state.patternStyles[aStyle]->mSurface) {
+    return IsOpaqueFormat(state.patternStyles[aStyle]->mSurface->GetFormat());
+  }
+
+  // TODO: for gradient patterns we could check that all stops are opaque
+  // colors.
+
+  if (!state.gradientStyles[aStyle]) {
+    // it's a color pattern.
+    return Color::FromABGR(state.colorStyles[aStyle]).a >= 1.0;
+  }
+
+  return false;
+}
+
 
 void
 BasicRenderingContext2D::GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
@@ -503,6 +539,213 @@ BasicRenderingContext2D::SetShadowColor(const nsAString& aShadowColor)
 }
 
 //
+// rects
+//
+
+static bool
+ValidateRect(double& aX, double& aY, double& aWidth, double& aHeight, bool aIsZeroSizeValid)
+{
+  if (!aIsZeroSizeValid && (aWidth == 0.0 || aHeight == 0.0)) {
+    return false;
+  }
+
+  // bug 1018527
+  // The values of canvas API input are in double precision, but Moz2D APIs are
+  // using float precision. Bypass canvas API calls when the input is out of
+  // float precision to avoid precision problem
+  if (!std::isfinite((float)aX) | !std::isfinite((float)aY) |
+      !std::isfinite((float)aWidth) | !std::isfinite((float)aHeight)) {
+    return false;
+  }
+
+  // bug 1074733
+  // The canvas spec does not forbid rects with negative w or h, so given
+  // corners (x, y), (x+w, y), (x+w, y+h), and (x, y+h) we must generate
+  // the appropriate rect by flipping negative dimensions. This prevents
+  // draw targets from receiving "empty" rects later on.
+  if (aWidth < 0) {
+    aWidth = -aWidth;
+    aX -= aWidth;
+  }
+  if (aHeight < 0) {
+    aHeight = -aHeight;
+    aY -= aHeight;
+  }
+  return true;
+}
+
+void
+BasicRenderingContext2D::ClearRect(double aX, double aY, double aW,
+                                   double aH)
+{
+  // Do not allow zeros - it's a no-op at that point per spec.
+  if (!ValidateRect(aX, aY, aW, aH, false)) {
+    return;
+  }
+
+  gfx::Rect clearRect(aX, aY, aW, aH);
+
+  EnsureTarget(&clearRect);
+
+  mTarget->ClearRect(clearRect);
+
+  RedrawUser(gfxRect(aX, aY, aW, aH));
+}
+
+void
+BasicRenderingContext2D::FillRect(double aX, double aY, double aW,
+                                  double aH)
+{
+  const ContextState &state = CurrentState();
+
+  if (!ValidateRect(aX, aY, aW, aH, true)) {
+    return;
+  }
+
+  if (state.patternStyles[Style::FILL]) {
+    CanvasPattern::RepeatMode repeat =
+      state.patternStyles[Style::FILL]->mRepeat;
+    // In the FillRect case repeat modes are easy to deal with.
+    bool limitx = repeat == CanvasPattern::RepeatMode::NOREPEAT || repeat == CanvasPattern::RepeatMode::REPEATY;
+    bool limity = repeat == CanvasPattern::RepeatMode::NOREPEAT || repeat == CanvasPattern::RepeatMode::REPEATX;
+
+    IntSize patternSize =
+      state.patternStyles[Style::FILL]->mSurface->GetSize();
+
+    // We always need to execute painting for non-over operators, even if
+    // we end up with w/h = 0.
+    if (limitx) {
+      if (aX < 0) {
+        aW += aX;
+        if (aW < 0) {
+          aW = 0;
+        }
+
+        aX = 0;
+      }
+      if (aX + aW > patternSize.width) {
+        aW = patternSize.width - aX;
+        if (aW < 0) {
+          aW = 0;
+        }
+      }
+    }
+    if (limity) {
+      if (aY < 0) {
+        aH += aY;
+        if (aH < 0) {
+          aH = 0;
+        }
+
+        aY = 0;
+      }
+      if (aY + aH > patternSize.height) {
+        aH = patternSize.height - aY;
+        if (aH < 0) {
+          aH = 0;
+        }
+      }
+    }
+  }
+
+  CompositionOp op = UsedOperation();
+  bool discardContent = PatternIsOpaque(Style::FILL)
+    && (op == CompositionOp::OP_OVER || op == CompositionOp::OP_SOURCE);
+
+  const gfx::Rect fillRect(aX, aY, aW, aH);
+  EnsureTarget(discardContent ? &fillRect : nullptr);
+
+  gfx::Rect bounds;
+  if (NeedToCalculateBounds()) {
+    bounds = mTarget->GetTransform().TransformBounds(fillRect);
+  }
+
+  AntialiasMode antialiasMode = CurrentState().imageSmoothingEnabled ?
+                                AntialiasMode::DEFAULT : AntialiasMode::NONE;
+
+  AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+    FillRect(gfx::Rect(aX, aY, aW, aH),
+             CanvasGeneralPattern().ForStyle(this, Style::FILL, mTarget),
+             DrawOptions(state.globalAlpha, op, antialiasMode));
+
+  RedrawUser(gfxRect(aX, aY, aW, aH));
+}
+
+void
+BasicRenderingContext2D::StrokeRect(double aX, double aY, double aW,
+                                    double aH)
+{
+  const ContextState &state = CurrentState();
+
+  gfx::Rect bounds;
+
+  if (!aW && !aH) {
+    return;
+  }
+
+  if (!ValidateRect(aX, aY, aW, aH, true)) {
+    return;
+  }
+
+  EnsureTarget();
+  if (!IsTargetValid()) {
+    return;
+  }
+
+  if (NeedToCalculateBounds()) {
+    bounds = gfx::Rect(aX - state.lineWidth / 2.0f, aY - state.lineWidth / 2.0f,
+                       aW + state.lineWidth, aH + state.lineWidth);
+    bounds = mTarget->GetTransform().TransformBounds(bounds);
+  }
+
+  if (!aH) {
+    CapStyle cap = CapStyle::BUTT;
+    if (state.lineJoin == JoinStyle::ROUND) {
+      cap = CapStyle::ROUND;
+    }
+    AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+      StrokeLine(Point(aX, aY), Point(aX + aW, aY),
+                  CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
+                  StrokeOptions(state.lineWidth, state.lineJoin,
+                                cap, state.miterLimit,
+                                state.dash.Length(),
+                                state.dash.Elements(),
+                                state.dashOffset),
+                  DrawOptions(state.globalAlpha, UsedOperation()));
+    return;
+  }
+
+  if (!aW) {
+    CapStyle cap = CapStyle::BUTT;
+    if (state.lineJoin == JoinStyle::ROUND) {
+      cap = CapStyle::ROUND;
+    }
+    AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+      StrokeLine(Point(aX, aY), Point(aX, aY + aH),
+                  CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
+                  StrokeOptions(state.lineWidth, state.lineJoin,
+                                cap, state.miterLimit,
+                                state.dash.Length(),
+                                state.dash.Elements(),
+                                state.dashOffset),
+                  DrawOptions(state.globalAlpha, UsedOperation()));
+    return;
+  }
+
+  AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+    StrokeRect(gfx::Rect(aX, aY, aW, aH),
+               CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
+               StrokeOptions(state.lineWidth, state.lineJoin,
+                             state.lineCap, state.miterLimit,
+                             state.dash.Length(),
+                             state.dash.Elements(),
+                             state.dashOffset),
+               DrawOptions(state.globalAlpha, UsedOperation()));
+
+  Redraw();
+}
+
+//
 // path bits
 //
 
@@ -523,6 +766,64 @@ BasicRenderingContext2D::TransformWillUpdate()
     }
     mPathTransformWillUpdate = true;
   }
+}
+
+Pattern&
+CanvasGeneralPattern::ForStyle(BasicRenderingContext2D* aCtx,
+                               BasicRenderingContext2D::Style aStyle,
+                               DrawTarget* aRT)
+{
+  // This should only be called once or the mPattern destructor will
+  // not be executed.
+  NS_ASSERTION(!mPattern.GetPattern(), "ForStyle() should only be called once on CanvasGeneralPattern!");
+
+  const BasicRenderingContext2D::ContextState &state = aCtx->CurrentState();
+
+  if (state.StyleIsColor(aStyle)) {
+    mPattern.InitColorPattern(ToDeviceColor(state.colorStyles[aStyle]));
+  } else if (state.gradientStyles[aStyle] &&
+             state.gradientStyles[aStyle]->GetType() == CanvasGradient::Type::LINEAR) {
+    CanvasLinearGradient *gradient =
+      static_cast<CanvasLinearGradient*>(state.gradientStyles[aStyle].get());
+
+    mPattern.InitLinearGradientPattern(gradient->mBegin, gradient->mEnd,
+                                       gradient->GetGradientStopsForTarget(aRT));
+  } else if (state.gradientStyles[aStyle] &&
+             state.gradientStyles[aStyle]->GetType() == CanvasGradient::Type::RADIAL) {
+    CanvasRadialGradient *gradient =
+      static_cast<CanvasRadialGradient*>(state.gradientStyles[aStyle].get());
+
+    mPattern.InitRadialGradientPattern(gradient->mCenter1, gradient->mCenter2,
+                                       gradient->mRadius1, gradient->mRadius2,
+                                       gradient->GetGradientStopsForTarget(aRT));
+  } else if (state.patternStyles[aStyle]) {
+    if (aCtx->GetCanvasElement()) {
+      CanvasUtils::DoDrawImageSecurityCheck(aCtx->GetCanvasElement(),
+                                            state.patternStyles[aStyle]->mPrincipal,
+                                            state.patternStyles[aStyle]->mForceWriteOnly,
+                                            state.patternStyles[aStyle]->mCORSUsed);
+    }
+
+    ExtendMode mode;
+    if (state.patternStyles[aStyle]->mRepeat == CanvasPattern::RepeatMode::NOREPEAT) {
+      mode = ExtendMode::CLAMP;
+    } else {
+      mode = ExtendMode::REPEAT;
+    }
+
+    SamplingFilter samplingFilter;
+    if (state.imageSmoothingEnabled) {
+      samplingFilter = SamplingFilter::GOOD;
+    } else {
+      samplingFilter = SamplingFilter::POINT;
+    }
+
+    mPattern.InitSurfacePattern(state.patternStyles[aStyle]->mSurface, mode,
+                                state.patternStyles[aStyle]->mTransform,
+                                samplingFilter);
+  }
+
+  return *mPattern.GetPattern();
 }
 
 } // namespace dom

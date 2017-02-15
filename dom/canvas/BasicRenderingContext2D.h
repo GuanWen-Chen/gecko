@@ -11,12 +11,16 @@
 #include "mozilla/dom/CanvasPattern.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 #include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/PatternHelpers.h"
 #include "nsStyleStruct.h"
 #include "nsSVGEffects.h"
 
 using mozilla::gfx::CompositionOp;
+using mozilla::gfx::DrawTarget;
 using mozilla::gfx::FilterDescription;
 using mozilla::gfx::Matrix;
+using mozilla::gfx::Pattern;
+using mozilla::gfx::GeneralPattern;
 
 namespace mozilla {
 namespace dom {
@@ -46,14 +50,22 @@ public:
   // This is created lazily so it is necessary to call EnsureTarget before
   // accessing it. In the event of an error it will be equal to
   // sErrorTarget.
-  RefPtr<mozilla::gfx::DrawTarget> mTarget;
+  RefPtr<DrawTarget> mTarget;
+
+  // this rect is in mTarget's current user space
+  virtual void RedrawUser(const gfxRect& aR) = 0;
+
+  virtual nsresult Redraw() = 0;
 
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_BASICRENDERINGCONTEXT2D_IID)
 protected:
-  ~BasicRenderingContext2D(){}
+  virtual ~BasicRenderingContext2D() {}
 public:
   explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
-    : mPathTransformWillUpdate(false){};
+    // these are the default values from the Canvas spec
+    : mWidth(0), mHeight(0)
+    , mPathTransformWillUpdate(false) {}
+
   //
   // CanvasState
   //
@@ -153,6 +165,7 @@ public:
     const CanvasImageSource& aElement,
     const nsAString& aRepeat,
     ErrorResult& aError);
+
   //
   // CanvasShadowStyles
   //
@@ -198,9 +211,9 @@ public:
   //
   // CanvasRect
   //
-  virtual void ClearRect(double aX, double aY, double aW, double aH) = 0;
-  virtual void FillRect(double aX, double aY, double aW, double aH) = 0;
-  virtual void StrokeRect(double aX, double aY, double aW, double aH) = 0;
+  void ClearRect(double aX, double aY, double aW, double aH);
+  void FillRect(double aX, double aY, double aW, double aH);
+  void StrokeRect(double aX, double aY, double aW, double aH);
 
   //
   // CanvasDrawImage
@@ -284,6 +297,11 @@ public:
                        bool aAnticlockwise,
                        ErrorResult& aError) = 0;
 protected:
+  friend class CanvasGeneralPattern;
+  friend class AdjustedTarget;
+  friend class AdjustedTargetForShadow;
+  friend class AdjustedTargetForFilter;
+
   enum class Style : uint8_t {
     STROKE = 0,
     FILL,
@@ -468,7 +486,10 @@ protected:
   bool fontExplicitLanguage;
   };
 
+  // Member vars
   AutoTArray<ContextState, 3> mStyleStack;
+
+  int32_t mWidth, mHeight;
 
   /**
     * We also have a device space pathbuilder. The reason for this is as
@@ -500,6 +521,8 @@ protected:
   Matrix mPathToDS;
 
 protected:
+  virtual HTMLCanvasElement* GetCanvasElement() = 0;
+
   virtual bool AlreadyShutDown() const = 0;
 
   /**
@@ -557,10 +580,64 @@ protected:
 
   void GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
                        Style aWhichStyle);
+
+
+  /**
+   * Returns true if we know for sure that the pattern for a given style is opaque.
+   * Usefull to know if we can discard the content below in certain situations.
+   */
+  bool PatternIsOpaque(Style aStyle) const;
+
+  mozilla::gfx::CompositionOp UsedOperation()
+  {
+    if (NeedToDrawShadow() || NeedToApplyFilter()) {
+      // In this case the shadow or filter rendering will use the operator.
+      return mozilla::gfx::CompositionOp::OP_OVER;
+    }
+
+    return CurrentState().op;
+  }
+
+  /**
+    * Returns true if a shadow should be drawn along with a
+    * drawing operation.
+    */
+  bool NeedToDrawShadow()
+  {
+    const ContextState& state = CurrentState();
+
+    // The spec says we should not draw shadows if the operator is OVER.
+    // If it's over and the alpha value is zero, nothing needs to be drawn.
+    return NS_GET_A(state.shadowColor) != 0 &&
+      (state.shadowBlur != 0.f || state.shadowOffset.x != 0.f || state.shadowOffset.y != 0.f);
+  }
+
+  /**
+    * Returns true if the result of a drawing operation should be
+    * drawn with a filter.
+    */
+  virtual bool NeedToApplyFilter() = 0;
+
+  bool NeedToCalculateBounds()
+  {
+    return NeedToDrawShadow() || NeedToApplyFilter();
+  }
 };
 
  NS_DEFINE_STATIC_IID_ACCESSOR(BasicRenderingContext2D,
                                NS_BASICRENDERINGCONTEXT2D_IID)
+
+// This class is named 'GeneralCanvasPattern' instead of just
+// 'GeneralPattern' to keep Windows PGO builds from confusing the
+// GeneralPattern class in gfxContext.cpp with this one.
+class CanvasGeneralPattern
+{
+public:
+  Pattern& ForStyle(BasicRenderingContext2D* aCtx,
+                    BasicRenderingContext2D::Style aStyle, DrawTarget* aRT);
+
+  GeneralPattern mPattern;
+};
 
 } // namespace dom
 } // namespace mozilla

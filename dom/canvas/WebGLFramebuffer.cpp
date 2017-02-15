@@ -1947,6 +1947,26 @@ ImplCycleCollectionUnlink(C& field)
     }
 }
 
+void
+ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
+                            std::vector<IndexedBufferBinding>& field,
+                            const char* name, uint32_t flags)
+{
+  for (const auto& cur : field) {
+    ImplCycleCollectionTraverse(callback, cur.mBufferBinding, name, flags);
+  }
+}
+
+template <typename T>
+inline void
+ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
+                            WebGLRefPtr<T>& field,
+                            const char* name,
+                            uint32_t flags = 0)
+{
+  CycleCollectionNoteChild(callback, field.get(), name, flags);
+}
+
 template<typename C>
 inline void
 ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& callback,
