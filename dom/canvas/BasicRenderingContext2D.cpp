@@ -488,6 +488,21 @@ BasicRenderingContext2D::SetStyleFromUnion(const StringOrCanvasGradientOrCanvasP
 }
 
 //
+// shadows
+//
+
+void
+BasicRenderingContext2D::SetShadowColor(const nsAString& aShadowColor)
+{
+  nscolor color;
+  if (!ParseColor(aShadowColor, &color)) {
+    return;
+  }
+
+  CurrentState().shadowColor = color;
+}
+
+//
 // path bits
 //
 
