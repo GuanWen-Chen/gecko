@@ -2175,20 +2175,6 @@ CanvasRenderingContext2D::GetFillRule(nsAString& aString)
 }
 
 //
-// shadows
-//
-void
-CanvasRenderingContext2D::SetShadowColor(const nsAString& aShadowColor)
-{
-  nscolor color;
-  if (!ParseColor(aShadowColor, &color)) {
-    return;
-  }
-
-  CurrentState().shadowColor = color;
-}
-
-//
 // filters
 //
 
