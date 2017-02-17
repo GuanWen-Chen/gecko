@@ -257,20 +257,40 @@ public:
   //
   // CanvasPathDrawingStyles
   //
-  virtual double LineWidth() = 0;
-  virtual void SetLineWidth(double aWidth) = 0;
-  virtual void GetLineCap(nsAString& aLinecapStyle) = 0;
-  virtual void SetLineCap(const nsAString& aLinecapStyle) = 0;
-  virtual void GetLineJoin(nsAString& aLinejoinStyle,
-                           mozilla::ErrorResult& aError) = 0;
-  virtual void SetLineJoin(const nsAString& aLinejoinStyle) = 0;
-  virtual double MiterLimit() = 0;
-  virtual void SetMiterLimit(double aMiter) = 0;
-  virtual void SetLineDash(const Sequence<double>& aSegments,
-                           mozilla::ErrorResult& aRv) = 0;
-  virtual void GetLineDash(nsTArray<double>& aSegments) const = 0;
-  virtual void SetLineDashOffset(double aOffset) = 0;
-  virtual double LineDashOffset() const = 0;
+  double LineWidth()
+  {
+    return CurrentState().lineWidth;
+  }
+
+  void SetLineWidth(double aWidth)
+  {
+    if (aWidth > 0.0) {
+      CurrentState().lineWidth = ToFloat(aWidth);
+    }
+  }
+  void GetLineCap(nsAString& aLinecapStyle);
+  void SetLineCap(const nsAString& aLinecapStyle);
+  void GetLineJoin(nsAString& aLinejoinStyle,
+                   mozilla::ErrorResult& aError);
+  void SetLineJoin(const nsAString& aLinejoinStyle);
+
+  double MiterLimit()
+  {
+    return CurrentState().miterLimit;
+  }
+
+  void SetMiterLimit(double aMiter)
+  {
+    if (aMiter > 0.0) {
+      CurrentState().miterLimit = ToFloat(aMiter);
+    }
+  }
+  void SetLineDash(const Sequence<double>& aSegments,
+                   mozilla::ErrorResult& aRv);
+  void GetLineDash(nsTArray<double>& aSegments) const;
+
+  void SetLineDashOffset(double aOffset);
+  double LineDashOffset() const;
 
   //
   // CanvasPath

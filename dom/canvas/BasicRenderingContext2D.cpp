@@ -1046,6 +1046,130 @@ BasicRenderingContext2D::EnsureUserSpacePath(const CanvasWindingRule& aWinding)
   NS_ASSERTION(mPath, "mPath should exist");
 }
 
+//
+// line caps/joins
+//
+
+void
+BasicRenderingContext2D::SetLineCap(const nsAString& aLinecapStyle)
+{
+  CapStyle cap;
+
+  if (aLinecapStyle.EqualsLiteral("butt")) {
+    cap = CapStyle::BUTT;
+  } else if (aLinecapStyle.EqualsLiteral("round")) {
+    cap = CapStyle::ROUND;
+  } else if (aLinecapStyle.EqualsLiteral("square")) {
+    cap = CapStyle::SQUARE;
+  } else {
+    // XXX ERRMSG we need to report an error to developers here! (bug 329026)
+    return;
+  }
+  CurrentState().lineCap = cap;
+}
+
+void
+BasicRenderingContext2D::GetLineCap(nsAString& aLinecapStyle)
+{
+  switch (CurrentState().lineCap) {
+  case CapStyle::BUTT:
+    aLinecapStyle.AssignLiteral("butt");
+    break;
+  case CapStyle::ROUND:
+    aLinecapStyle.AssignLiteral("round");
+    break;
+  case CapStyle::SQUARE:
+    aLinecapStyle.AssignLiteral("square");
+    break;
+  }
+}
+
+void
+BasicRenderingContext2D::SetLineJoin(const nsAString& aLinejoinStyle)
+{
+  JoinStyle j;
+
+  if (aLinejoinStyle.EqualsLiteral("round")) {
+    j = JoinStyle::ROUND;
+  } else if (aLinejoinStyle.EqualsLiteral("bevel")) {
+    j = JoinStyle::BEVEL;
+  } else if (aLinejoinStyle.EqualsLiteral("miter")) {
+    j = JoinStyle::MITER_OR_BEVEL;
+  } else {
+    // XXX ERRMSG we need to report an error to developers here! (bug 329026)
+    return;
+  }
+  CurrentState().lineJoin = j;
+}
+
+void
+BasicRenderingContext2D::GetLineJoin(nsAString& aLinejoinStyle, ErrorResult& aError)
+{
+  switch (CurrentState().lineJoin) {
+  case JoinStyle::ROUND:
+    aLinejoinStyle.AssignLiteral("round");
+    break;
+  case JoinStyle::BEVEL:
+    aLinejoinStyle.AssignLiteral("bevel");
+    break;
+  case JoinStyle::MITER_OR_BEVEL:
+    aLinejoinStyle.AssignLiteral("miter");
+    break;
+  default:
+    aError.Throw(NS_ERROR_FAILURE);
+  }
+}
+
+void
+BasicRenderingContext2D::SetLineDash(const Sequence<double>& aSegments,
+                                     ErrorResult& aRv)
+{
+  nsTArray<mozilla::gfx::Float> dash;
+
+  for (uint32_t x = 0; x < aSegments.Length(); x++) {
+    if (aSegments[x] < 0.0) {
+      // Pattern elements must be finite "numbers" >= 0, with "finite"
+      // taken care of by WebIDL
+      return;
+    }
+
+    if (!dash.AppendElement(aSegments[x], fallible)) {
+      aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+      return;
+    }
+  }
+  if (aSegments.Length() % 2) { // If the number of elements is odd, concatenate again
+    for (uint32_t x = 0; x < aSegments.Length(); x++) {
+      if (!dash.AppendElement(aSegments[x], fallible)) {
+        aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+        return;
+      }
+    }
+  }
+
+  CurrentState().dash = Move(dash);
+}
+
+void
+BasicRenderingContext2D::GetLineDash(nsTArray<double>& aSegments) const {
+  const nsTArray<mozilla::gfx::Float>& dash = CurrentState().dash;
+  aSegments.Clear();
+
+  for (uint32_t x = 0; x < dash.Length(); x++) {
+    aSegments.AppendElement(dash[x]);
+  }
+}
+
+void
+BasicRenderingContext2D::SetLineDashOffset(double aOffset) {
+  CurrentState().dashOffset = aOffset;
+}
+
+double
+BasicRenderingContext2D::LineDashOffset() const {
+  return CurrentState().dashOffset;
+}
+
 Pattern&
 CanvasGeneralPattern::ForStyle(BasicRenderingContext2D* aCtx,
                                BasicRenderingContext2D::Style aStyle,

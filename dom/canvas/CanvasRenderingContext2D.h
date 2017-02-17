@@ -131,34 +131,7 @@ public:
                     double aDirtyWidth, double aDirtyHeight,
                     mozilla::ErrorResult& aError);
 
-  double LineWidth() override
-  {
-    return CurrentState().lineWidth;
-  }
 
-  void SetLineWidth(double aWidth) override
-  {
-    if (aWidth > 0.0) {
-      CurrentState().lineWidth = ToFloat(aWidth);
-    }
-  }
-  void GetLineCap(nsAString& aLinecapStyle) override;
-  void SetLineCap(const nsAString& aLinecapStyle) override;
-  void GetLineJoin(nsAString& aLinejoinStyle,
-                   mozilla::ErrorResult& aError) override;
-  void SetLineJoin(const nsAString& aLinejoinStyle) override;
-
-  double MiterLimit() override
-  {
-    return CurrentState().miterLimit;
-  }
-
-  void SetMiterLimit(double aMiter) override
-  {
-    if (aMiter > 0.0) {
-      CurrentState().miterLimit = ToFloat(aMiter);
-    }
-  }
 
   void GetFont(nsAString& aFont)
   {
@@ -251,13 +224,6 @@ public:
                                      mozilla::ErrorResult& aError);
   void GetFillRule(nsAString& aFillRule);
   void SetFillRule(const nsAString& aFillRule);
-
-  void SetLineDash(const Sequence<double>& aSegments,
-                   mozilla::ErrorResult& aRv) override;
-  void GetLineDash(nsTArray<double>& aSegments) const override;
-
-  void SetLineDashOffset(double aOffset) override;
-  double LineDashOffset() const override;
 
   void GetMozTextStyle(nsAString& aMozTextStyle)
   {
