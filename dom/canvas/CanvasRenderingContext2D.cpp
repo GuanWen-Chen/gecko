@@ -878,7 +878,7 @@ CanvasDrawObserver::FrameEnd()
       } else {
         switchToMode = CanvasRenderingContext2D::RenderingMode::SoftwareBackendMode;
       }
-      if (switchToMode != mCanvasContext->mRenderingMode) {
+      swffdsfif (switchToMode != mCanvasContext->mRenderingMode) {
         if (!mCanvasContext->SwitchRenderingMode(switchToMode)) {
           gfxDebug() << "Canvas acceleration failed mode switch to " << switchToMode;
         }
