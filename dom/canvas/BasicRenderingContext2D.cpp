@@ -11,6 +11,7 @@
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/HTMLVideoElement.h"
 #include "mozilla/dom/ImageBitmap.h"
+#include "mozilla/gfx/PathHelpers.h"
 #include "nsContentUtils.h"
 #include "nsICanvasRenderingContextInternal.h"
 #include "nsPrintfCString.h"
@@ -18,6 +19,7 @@
 
 using mozilla::CanvasUtils::FloatValidate;
 using mozilla::gfx::AntialiasMode;
+using mozilla::gfx::ArcToBezier;
 using mozilla::gfx::CapStyle;
 using mozilla::gfx::Color;
 using mozilla::gfx::DrawOptions;
@@ -27,6 +29,7 @@ using mozilla::gfx::JoinStyle;
 using mozilla::gfx::IntSize;
 using mozilla::gfx::Path;
 using mozilla::gfx::SamplingFilter;
+using mozilla::gfx::Size;
 using mozilla::gfx::SourceSurface;
 using mozilla::gfx::StrokeOptions;
 using mozilla::gfx::ToDeviceColor;
@@ -976,6 +979,135 @@ bool BasicRenderingContext2D::IsPointInStroke(const CanvasPath& aPath, double aX
 }
 
 void
+BasicRenderingContext2D::ArcTo(double aX1, double aY1, double aX2,
+                               double aY2, double aRadius,
+                               ErrorResult& aError)
+{
+  if (aRadius < 0) {
+    aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
+    return;
+  }
+
+  EnsureWritablePath();
+
+  // Current point in user space!
+  Point p0;
+  if (mPathBuilder) {
+    p0 = mPathBuilder->CurrentPoint();
+  } else {
+    Matrix invTransform = mTarget->GetTransform();
+    if (!invTransform.Invert()) {
+      return;
+    }
+
+    p0 = invTransform.TransformPoint(mDSPathBuilder->CurrentPoint());
+  }
+
+  Point p1(aX1, aY1);
+  Point p2(aX2, aY2);
+
+  // Execute these calculations in double precision to avoid cumulative
+  // rounding errors.
+  double dir, a2, b2, c2, cosx, sinx, d, anx, any,
+         bnx, bny, x3, y3, x4, y4, cx, cy, angle0, angle1;
+  bool anticlockwise;
+
+  if (p0 == p1 || p1 == p2 || aRadius == 0) {
+    LineTo(p1.x, p1.y);
+    return;
+  }
+
+  // Check for colinearity
+  dir = (p2.x - p1.x) * (p0.y - p1.y) + (p2.y - p1.y) * (p1.x - p0.x);
+  if (dir == 0) {
+    LineTo(p1.x, p1.y);
+    return;
+  }
+
+
+  // XXX - Math for this code was already available from the non-azure code
+  // and would be well tested. Perhaps converting to bezier directly might
+  // be more efficient longer run.
+  a2 = (p0.x-aX1)*(p0.x-aX1) + (p0.y-aY1)*(p0.y-aY1);
+  b2 = (aX1-aX2)*(aX1-aX2) + (aY1-aY2)*(aY1-aY2);
+  c2 = (p0.x-aX2)*(p0.x-aX2) + (p0.y-aY2)*(p0.y-aY2);
+  cosx = (a2+b2-c2)/(2*sqrt(a2*b2));
+
+  sinx = sqrt(1 - cosx*cosx);
+  d = aRadius / ((1 - cosx) / sinx);
+
+  anx = (aX1-p0.x) / sqrt(a2);
+  any = (aY1-p0.y) / sqrt(a2);
+  bnx = (aX1-aX2) / sqrt(b2);
+  bny = (aY1-aY2) / sqrt(b2);
+  x3 = aX1 - anx*d;
+  y3 = aY1 - any*d;
+  x4 = aX1 - bnx*d;
+  y4 = aY1 - bny*d;
+  anticlockwise = (dir < 0);
+  cx = x3 + any*aRadius*(anticlockwise ? 1 : -1);
+  cy = y3 - anx*aRadius*(anticlockwise ? 1 : -1);
+  angle0 = atan2((y3-cy), (x3-cx));
+  angle1 = atan2((y4-cy), (x4-cx));
+
+
+  LineTo(x3, y3);
+
+  Arc(cx, cy, aRadius, angle0, angle1, anticlockwise, aError);
+}
+
+void
+BasicRenderingContext2D::Arc(double aX, double aY, double aR,
+                             double aStartAngle, double aEndAngle,
+                             bool aAnticlockwise, ErrorResult& aError)
+{
+  if (aR < 0.0) {
+    aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
+    return;
+  }
+
+  EnsureWritablePath();
+
+  ArcToBezier(this, Point(aX, aY), Size(aR, aR), aStartAngle, aEndAngle, aAnticlockwise);
+}
+
+void
+BasicRenderingContext2D::Rect(double aX, double aY, double aW, double aH)
+{
+  EnsureWritablePath();
+
+  if (mPathBuilder) {
+    mPathBuilder->MoveTo(Point(aX, aY));
+    mPathBuilder->LineTo(Point(aX + aW, aY));
+    mPathBuilder->LineTo(Point(aX + aW, aY + aH));
+    mPathBuilder->LineTo(Point(aX, aY + aH));
+    mPathBuilder->Close();
+  } else {
+    mDSPathBuilder->MoveTo(mTarget->GetTransform().TransformPoint(Point(aX, aY)));
+    mDSPathBuilder->LineTo(mTarget->GetTransform().TransformPoint(Point(aX + aW, aY)));
+    mDSPathBuilder->LineTo(mTarget->GetTransform().TransformPoint(Point(aX + aW, aY + aH)));
+    mDSPathBuilder->LineTo(mTarget->GetTransform().TransformPoint(Point(aX, aY + aH)));
+    mDSPathBuilder->Close();
+  }
+}
+
+void
+BasicRenderingContext2D::Ellipse(double aX, double aY, double aRadiusX, double aRadiusY,
+                                 double aRotation, double aStartAngle, double aEndAngle,
+                                 bool aAnticlockwise, ErrorResult& aError)
+{
+  if (aRadiusX < 0.0 || aRadiusY < 0.0) {
+    aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
+    return;
+  }
+
+  EnsureWritablePath();
+
+  ArcToBezier(this, Point(aX, aY), Size(aRadiusX, aRadiusY), aStartAngle, aEndAngle,
+              aAnticlockwise, aRotation);
+}
+
+void
 BasicRenderingContext2D::TransformWillUpdate()
 {
   EnsureTarget();
@@ -1044,6 +1176,42 @@ BasicRenderingContext2D::EnsureUserSpacePath(const CanvasWindingRule& aWinding)
   }
 
   NS_ASSERTION(mPath, "mPath should exist");
+}
+
+void
+BasicRenderingContext2D::EnsureWritablePath()
+{
+  EnsureTarget();
+
+  if (mDSPathBuilder) {
+    return;
+  }
+
+  FillRule fillRule = CurrentState().fillRule;
+
+  if (mPathBuilder) {
+    if (mPathTransformWillUpdate) {
+      mPath = mPathBuilder->Finish();
+      mDSPathBuilder =
+        mPath->TransformedCopyToBuilder(mPathToDS, fillRule);
+      mPath = nullptr;
+      mPathBuilder = nullptr;
+      mPathTransformWillUpdate = false;
+    }
+    return;
+  }
+
+  if (!mPath) {
+    NS_ASSERTION(!mPathTransformWillUpdate, "mPathTransformWillUpdate should be false, if all paths are null");
+    mPathBuilder = mTarget->CreatePathBuilder(fillRule);
+  } else if (!mPathTransformWillUpdate) {
+    mPathBuilder = mPath->CopyToBuilder(fillRule);
+  } else {
+    mDSPathBuilder =
+      mPath->TransformedCopyToBuilder(mPathToDS, fillRule);
+    mPathTransformWillUpdate = false;
+    mPath = nullptr;
+  }
 }
 
 //

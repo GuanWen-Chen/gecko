@@ -144,72 +144,6 @@ public:
   void GetTextBaseline(nsAString& aTextBaseline);
   void SetTextBaseline(const nsAString& aTextBaseline);
 
-  void ClosePath() override
-  {
-    EnsureWritablePath();
-
-    if (mPathBuilder) {
-      mPathBuilder->Close();
-    } else {
-      mDSPathBuilder->Close();
-    }
-  }
-
-  void MoveTo(double aX, double aY) override
-  {
-    EnsureWritablePath();
-
-    if (mPathBuilder) {
-      mPathBuilder->MoveTo(mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
-    } else {
-      mDSPathBuilder->MoveTo(mTarget->GetTransform().TransformPoint(
-                             mozilla::gfx::Point(ToFloat(aX), ToFloat(aY))));
-    }
-  }
-
-  void LineTo(double aX, double aY) override
-  {
-    EnsureWritablePath();
-
-    LineTo(mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
-  }
-
-  void QuadraticCurveTo(double aCpx, double aCpy, double aX, double aY) override
-  {
-    EnsureWritablePath();
-
-    if (mPathBuilder) {
-      mPathBuilder->QuadraticBezierTo(mozilla::gfx::Point(ToFloat(aCpx), ToFloat(aCpy)),
-                                      mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
-    } else {
-      mozilla::gfx::Matrix transform = mTarget->GetTransform();
-      mDSPathBuilder->QuadraticBezierTo(transform.TransformPoint(
-                                          mozilla::gfx::Point(ToFloat(aCpx), ToFloat(aCpy))),
-                                        transform.TransformPoint(
-                                          mozilla::gfx::Point(ToFloat(aX), ToFloat(aY))));
-    }
-  }
-
-  void BezierCurveTo(double aCp1x, double aCp1y, double aCp2x, double aCp2y,
-                     double aX, double aY) override
-  {
-    EnsureWritablePath();
-
-    BezierTo(mozilla::gfx::Point(ToFloat(aCp1x), ToFloat(aCp1y)),
-             mozilla::gfx::Point(ToFloat(aCp2x), ToFloat(aCp2y)),
-             mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
-  }
-
-  void ArcTo(double aX1, double aY1, double aX2, double aY2,
-             double aRadius, mozilla::ErrorResult& aError) override;
-  void Rect(double aX, double aY, double aW, double aH) override;
-  void Arc(double aX, double aY, double aRadius, double aStartAngle,
-           double aEndAngle, bool aAnticlockwise,
-           mozilla::ErrorResult& aError) override;
-  void Ellipse(double aX, double aY, double aRadiusX, double aRadiusY,
-               double aRotation, double aStartAngle, double aEndAngle,
-               bool aAnticlockwise, ErrorResult& aError) override;
-
   void GetMozCurrentTransform(JSContext* aCx,
                               JS::MutableHandle<JSObject*> aResult,
                               mozilla::ErrorResult& aError);
@@ -327,29 +261,6 @@ public:
     return mCanvasElement;
   }
 
-  void LineTo(const mozilla::gfx::Point& aPoint)
-  {
-    if (mPathBuilder) {
-      mPathBuilder->LineTo(aPoint);
-    } else {
-      mDSPathBuilder->LineTo(mTarget->GetTransform().TransformPoint(aPoint));
-    }
-  }
-
-  void BezierTo(const mozilla::gfx::Point& aCP1,
-                const mozilla::gfx::Point& aCP2,
-                const mozilla::gfx::Point& aCP3)
-  {
-    if (mPathBuilder) {
-      mPathBuilder->BezierTo(aCP1, aCP2, aCP3);
-    } else {
-      mozilla::gfx::Matrix transform = mTarget->GetTransform();
-      mDSPathBuilder->BezierTo(transform.TransformPoint(aCP1),
-                               transform.TransformPoint(aCP2),
-                               transform.TransformPoint(aCP3));
-    }
-  }
-
   friend class CanvasRenderingContext2DUserData;
 
   virtual UniquePtr<uint8_t[]> GetImageBuffer(int32_t* aFormat) override;
@@ -418,13 +329,6 @@ protected:
    * Creates the error target, if it doesn't exist
    */
   static void EnsureErrorTarget();
-
-  /* This function ensures there is a writable pathbuilder available, this
-   * pathbuilder may be working in user space or in device space or
-   * device space.
-   * After calling this function mPathTransformWillUpdate will be false
-   */
-  void EnsureWritablePath();
 
   // Report the fillRule has changed.
   void FillRuleChanged();
