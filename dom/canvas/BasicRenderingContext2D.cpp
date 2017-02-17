@@ -16,13 +16,16 @@
 #include "nsPrintfCString.h"
 #include "nsStyleUtil.h"
 
+using mozilla::CanvasUtils::FloatValidate;
 using mozilla::gfx::AntialiasMode;
 using mozilla::gfx::CapStyle;
 using mozilla::gfx::Color;
 using mozilla::gfx::DrawOptions;
 using mozilla::gfx::ExtendMode;
+using mozilla::gfx::FillRule;
 using mozilla::gfx::JoinStyle;
 using mozilla::gfx::IntSize;
+using mozilla::gfx::Path;
 using mozilla::gfx::SamplingFilter;
 using mozilla::gfx::SourceSurface;
 using mozilla::gfx::StrokeOptions;
@@ -750,6 +753,229 @@ BasicRenderingContext2D::StrokeRect(double aX, double aY, double aW,
 //
 
 void
+BasicRenderingContext2D::BeginPath()
+{
+  mPath = nullptr;
+  mPathBuilder = nullptr;
+  mDSPathBuilder = nullptr;
+  mPathTransformWillUpdate = false;
+}
+
+void
+BasicRenderingContext2D::Fill(const CanvasWindingRule& aWinding)
+{
+  EnsureUserSpacePath(aWinding);
+
+  if (!mPath) {
+    return;
+  }
+
+  gfx::Rect bounds;
+
+  if (NeedToCalculateBounds()) {
+    bounds = mPath->GetBounds(mTarget->GetTransform());
+  }
+
+  AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+    Fill(mPath, CanvasGeneralPattern().ForStyle(this, Style::FILL, mTarget),
+         DrawOptions(CurrentState().globalAlpha, UsedOperation()));
+
+  Redraw();
+}
+
+void BasicRenderingContext2D::Fill(const CanvasPath& aPath, const CanvasWindingRule& aWinding)
+{
+  EnsureTarget();
+
+  RefPtr<gfx::Path> gfxpath = aPath.GetPath(aWinding, mTarget);
+
+  if (!gfxpath) {
+    return;
+  }
+
+  gfx::Rect bounds;
+
+  if (NeedToCalculateBounds()) {
+    bounds = gfxpath->GetBounds(mTarget->GetTransform());
+  }
+
+  AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+    Fill(gfxpath, CanvasGeneralPattern().ForStyle(this, Style::FILL, mTarget),
+         DrawOptions(CurrentState().globalAlpha, UsedOperation()));
+
+  Redraw();
+}
+
+void
+BasicRenderingContext2D::Stroke()
+{
+  EnsureUserSpacePath();
+
+  if (!mPath) {
+    return;
+  }
+
+  const ContextState &state = CurrentState();
+
+  StrokeOptions strokeOptions(state.lineWidth, state.lineJoin,
+                              state.lineCap, state.miterLimit,
+                              state.dash.Length(), state.dash.Elements(),
+                              state.dashOffset);
+
+  gfx::Rect bounds;
+  if (NeedToCalculateBounds()) {
+    bounds =
+      mPath->GetStrokedBounds(strokeOptions, mTarget->GetTransform());
+  }
+
+  AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+    Stroke(mPath, CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
+           strokeOptions, DrawOptions(state.globalAlpha, UsedOperation()));
+
+  Redraw();
+}
+
+void
+BasicRenderingContext2D::Stroke(const CanvasPath& aPath)
+{
+  EnsureTarget();
+
+  RefPtr<gfx::Path> gfxpath = aPath.GetPath(CanvasWindingRule::Nonzero, mTarget);
+
+  if (!gfxpath) {
+    return;
+  }
+
+  const ContextState &state = CurrentState();
+
+  StrokeOptions strokeOptions(state.lineWidth, state.lineJoin,
+                              state.lineCap, state.miterLimit,
+                              state.dash.Length(), state.dash.Elements(),
+                              state.dashOffset);
+
+  gfx::Rect bounds;
+  if (NeedToCalculateBounds()) {
+    bounds =
+      gfxpath->GetStrokedBounds(strokeOptions, mTarget->GetTransform());
+  }
+
+  AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
+    Stroke(gfxpath, CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
+           strokeOptions, DrawOptions(state.globalAlpha, UsedOperation()));
+
+  Redraw();
+}
+
+void
+BasicRenderingContext2D::Clip(const CanvasWindingRule& aWinding)
+{
+  EnsureUserSpacePath(aWinding);
+
+  if (!mPath) {
+    return;
+  }
+
+  mTarget->PushClip(mPath);
+  CurrentState().clipsAndTransforms.AppendElement(ClipState(mPath));
+}
+
+void
+BasicRenderingContext2D::Clip(const CanvasPath& aPath, const CanvasWindingRule& aWinding)
+{
+  EnsureTarget();
+
+  RefPtr<gfx::Path> gfxpath = aPath.GetPath(aWinding, mTarget);
+
+  if (!gfxpath) {
+    return;
+  }
+
+  mTarget->PushClip(gfxpath);
+  CurrentState().clipsAndTransforms.AppendElement(ClipState(gfxpath));
+}
+
+bool
+BasicRenderingContext2D::IsPointInPath(double aX, double aY, const CanvasWindingRule& aWinding)
+{
+  if (!FloatValidate(aX, aY)) {
+    return false;
+  }
+
+  EnsureUserSpacePath(aWinding);
+  if (!mPath) {
+    return false;
+  }
+
+  if (mPathTransformWillUpdate) {
+    return mPath->ContainsPoint(Point(aX, aY), mPathToDS);
+  }
+
+  return mPath->ContainsPoint(Point(aX, aY), mTarget->GetTransform());
+}
+
+bool BasicRenderingContext2D::IsPointInPath(const CanvasPath& aPath, double aX, double aY, const CanvasWindingRule& aWinding)
+{
+  if (!FloatValidate(aX, aY)) {
+    return false;
+  }
+
+  EnsureTarget();
+  RefPtr<gfx::Path> tempPath = aPath.GetPath(aWinding, mTarget);
+
+  return tempPath->ContainsPoint(Point(aX, aY), mTarget->GetTransform());
+}
+
+bool
+BasicRenderingContext2D::IsPointInStroke(double aX, double aY)
+{
+  if (!FloatValidate(aX, aY)) {
+    return false;
+  }
+
+  EnsureUserSpacePath();
+  if (!mPath) {
+    return false;
+  }
+
+  const ContextState &state = CurrentState();
+
+  StrokeOptions strokeOptions(state.lineWidth,
+                              state.lineJoin,
+                              state.lineCap,
+                              state.miterLimit,
+                              state.dash.Length(),
+                              state.dash.Elements(),
+                              state.dashOffset);
+
+  if (mPathTransformWillUpdate) {
+    return mPath->StrokeContainsPoint(strokeOptions, Point(aX, aY), mPathToDS);
+  }
+  return mPath->StrokeContainsPoint(strokeOptions, Point(aX, aY), mTarget->GetTransform());
+}
+
+bool BasicRenderingContext2D::IsPointInStroke(const CanvasPath& aPath, double aX, double aY)
+{
+  if (!FloatValidate(aX, aY)) {
+    return false;
+  }
+
+  EnsureTarget();
+  RefPtr<gfx::Path> tempPath = aPath.GetPath(CanvasWindingRule::Nonzero, mTarget);
+
+  const ContextState &state = CurrentState();
+
+  StrokeOptions strokeOptions(state.lineWidth,
+                              state.lineJoin,
+                              state.lineCap,
+                              state.miterLimit,
+                              state.dash.Length(),
+                              state.dash.Elements(),
+                              state.dashOffset);
+
+  return tempPath->StrokeContainsPoint(strokeOptions, Point(aX, aY), mTarget->GetTransform());
+}
+
+void
 BasicRenderingContext2D::TransformWillUpdate()
 {
   EnsureTarget();
@@ -766,6 +992,58 @@ BasicRenderingContext2D::TransformWillUpdate()
     }
     mPathTransformWillUpdate = true;
   }
+}
+
+void
+BasicRenderingContext2D::EnsureUserSpacePath(const CanvasWindingRule& aWinding)
+{
+  FillRule fillRule = CurrentState().fillRule;
+  if (aWinding == CanvasWindingRule::Evenodd)
+    fillRule = FillRule::FILL_EVEN_ODD;
+
+  EnsureTarget();
+
+  if (!mPath && !mPathBuilder && !mDSPathBuilder) {
+    mPathBuilder = mTarget->CreatePathBuilder(fillRule);
+  }
+
+  if (mPathBuilder) {
+    mPath = mPathBuilder->Finish();
+    mPathBuilder = nullptr;
+  }
+
+  if (mPath &&
+      mPathTransformWillUpdate) {
+    mDSPathBuilder =
+      mPath->TransformedCopyToBuilder(mPathToDS, fillRule);
+    mPath = nullptr;
+    mPathTransformWillUpdate = false;
+  }
+
+  if (mDSPathBuilder) {
+    RefPtr<Path> dsPath;
+    dsPath = mDSPathBuilder->Finish();
+    mDSPathBuilder = nullptr;
+
+    Matrix inverse = mTarget->GetTransform();
+    if (!inverse.Invert()) {
+      NS_WARNING("Could not invert transform");
+      return;
+    }
+
+    mPathBuilder =
+      dsPath->TransformedCopyToBuilder(inverse, fillRule);
+    mPath = mPathBuilder->Finish();
+    mPathBuilder = nullptr;
+  }
+
+  if (mPath && mPath->GetFillRule() != fillRule) {
+    mPathBuilder = mPath->CopyToBuilder(fillRule);
+    mPath = mPathBuilder->Finish();
+    mPathBuilder = nullptr;
+  }
+
+  NS_ASSERTION(mPath, "mPath should exist");
 }
 
 Pattern&
