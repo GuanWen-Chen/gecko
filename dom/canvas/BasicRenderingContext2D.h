@@ -57,6 +57,29 @@ public:
 
   virtual nsresult Redraw() = 0;
 
+  void LineTo(const mozilla::gfx::Point& aPoint)
+  {
+    if (mPathBuilder) {
+      mPathBuilder->LineTo(aPoint);
+    } else {
+      mDSPathBuilder->LineTo(mTarget->GetTransform().TransformPoint(aPoint));
+    }
+  }
+
+  void BezierTo(const mozilla::gfx::Point& aCP1,
+                const mozilla::gfx::Point& aCP2,
+                const mozilla::gfx::Point& aCP3)
+  {
+    if (mPathBuilder) {
+      mPathBuilder->BezierTo(aCP1, aCP2, aCP3);
+    } else {
+      mozilla::gfx::Matrix transform = mTarget->GetTransform();
+      mDSPathBuilder->BezierTo(transform.TransformPoint(aCP1),
+                               transform.TransformPoint(aCP2),
+                               transform.TransformPoint(aCP3));
+    }
+  }
+
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_BASICRENDERINGCONTEXT2D_IID)
 protected:
   virtual ~BasicRenderingContext2D() {}
@@ -295,42 +318,72 @@ public:
   //
   // CanvasPath
   //
-  virtual void ClosePath() = 0;
-  virtual void MoveTo(double aX, double aY) = 0;
-  virtual void LineTo(double aX, double aY) = 0;
-  virtual void QuadraticCurveTo(double aCpx,
-                                double aCpy,
-                                double aX,
-                                double aY) = 0;
-  virtual void BezierCurveTo(double aCp1x,
-                             double aCp1y,
-                             double aCp2x,
-                             double aCp2y,
-                             double aX,
-                             double aY) = 0;
-  virtual void ArcTo(double aX1,
-                     double aY1,
-                     double aX2,
-                     double aY2,
-                     double aRadius,
-                     mozilla::ErrorResult& aError) = 0;
-  virtual void Rect(double aX, double aY, double aW, double aH) = 0;
-  virtual void Arc(double aX,
-                   double aY,
-                   double aRadius,
-                   double aStartAngle,
-                   double aEndAngle,
-                   bool aAnticlockwise,
-                   mozilla::ErrorResult& aError) = 0;
-  virtual void Ellipse(double aX,
-                       double aY,
-                       double aRadiusX,
-                       double aRadiusY,
-                       double aRotation,
-                       double aStartAngle,
-                       double aEndAngle,
-                       bool aAnticlockwise,
-                       ErrorResult& aError) = 0;
+  void ClosePath()
+  {
+    EnsureWritablePath();
+
+    if (mPathBuilder) {
+      mPathBuilder->Close();
+    } else {
+      mDSPathBuilder->Close();
+    }
+  }
+
+  void MoveTo(double aX, double aY)
+  {
+    EnsureWritablePath();
+
+    if (mPathBuilder) {
+      mPathBuilder->MoveTo(mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
+    } else {
+      mDSPathBuilder->MoveTo(mTarget->GetTransform().TransformPoint(
+                             mozilla::gfx::Point(ToFloat(aX), ToFloat(aY))));
+    }
+  }
+
+  void LineTo(double aX, double aY)
+  {
+    EnsureWritablePath();
+
+    LineTo(mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
+  }
+
+  void QuadraticCurveTo(double aCpx, double aCpy, double aX, double aY)
+  {
+    EnsureWritablePath();
+
+    if (mPathBuilder) {
+      mPathBuilder->QuadraticBezierTo(mozilla::gfx::Point(ToFloat(aCpx), ToFloat(aCpy)),
+                                      mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
+    } else {
+      mozilla::gfx::Matrix transform = mTarget->GetTransform();
+      mDSPathBuilder->QuadraticBezierTo(transform.TransformPoint(
+                                          mozilla::gfx::Point(ToFloat(aCpx), ToFloat(aCpy))),
+                                        transform.TransformPoint(
+                                          mozilla::gfx::Point(ToFloat(aX), ToFloat(aY))));
+    }
+  }
+
+  void BezierCurveTo(double aCp1x, double aCp1y, double aCp2x, double aCp2y,
+                     double aX, double aY)
+  {
+    EnsureWritablePath();
+
+    BezierTo(mozilla::gfx::Point(ToFloat(aCp1x), ToFloat(aCp1y)),
+             mozilla::gfx::Point(ToFloat(aCp2x), ToFloat(aCp2y)),
+             mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
+  }
+
+  void ArcTo(double aX1, double aY1, double aX2, double aY2,
+             double aRadius, mozilla::ErrorResult& aError);
+  void Rect(double aX, double aY, double aW, double aH);
+  void Arc(double aX, double aY, double aRadius, double aStartAngle,
+           double aEndAngle, bool aAnticlockwise,
+           mozilla::ErrorResult& aError);
+  void Ellipse(double aX, double aY, double aRadiusX, double aRadiusY,
+               double aRotation, double aStartAngle, double aEndAngle,
+               bool aAnticlockwise, ErrorResult& aError);
+
 protected:
   friend class CanvasGeneralPattern;
   friend class AdjustedTarget;
@@ -686,6 +739,13 @@ protected:
 
   // Ensures a path in UserSpace is available.
   void EnsureUserSpacePath(const CanvasWindingRule& aWinding = CanvasWindingRule::Nonzero);
+
+  /* This function ensures there is a writable pathbuilder available, this
+   * pathbuilder may be working in user space or in device space or
+   * device space.
+   * After calling this function mPathTransformWillUpdate will be false
+   */
+  void EnsureWritablePath();
 };
 
  NS_DEFINE_STATIC_IID_ACCESSOR(BasicRenderingContext2D,
