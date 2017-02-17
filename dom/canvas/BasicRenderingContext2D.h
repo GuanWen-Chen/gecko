@@ -216,6 +216,21 @@ public:
   void StrokeRect(double aX, double aY, double aW, double aH);
 
   //
+  // CanvasDrawPath
+  //
+  void BeginPath();
+  void Fill(const CanvasWindingRule& aWinding);
+  void Fill(const CanvasPath& aPath, const CanvasWindingRule& aWinding);
+  void Stroke();
+  void Stroke(const CanvasPath& aPath);
+  void Clip(const CanvasWindingRule& aWinding);
+  void Clip(const CanvasPath& aPath, const CanvasWindingRule& aWinding);
+  bool IsPointInPath(double aX, double aY, const CanvasWindingRule& aWinding);
+  bool IsPointInPath(const CanvasPath& aPath, double aX, double aY, const CanvasWindingRule& aWinding);
+  bool IsPointInStroke(double aX, double aY);
+  bool IsPointInStroke(const CanvasPath& aPath, double aX, double aY);
+
+  //
   // CanvasDrawImage
   //
   virtual void DrawImage(const CanvasImageSource& aImage,
@@ -520,6 +535,32 @@ protected:
   bool mPathTransformWillUpdate;
   Matrix mPathToDS;
 
+  /**
+    * We also have a device space pathbuilder. The reason for this is as
+    * follows, when a path is being built, but the transform changes, we
+    * can no longer keep a single path in userspace, considering there's
+    * several 'user spaces' now. We therefore transform the current path
+    * into device space, and add all operations to this path in device
+    * space.
+    *
+    * When then finally executing a render, the Azure drawing API expects
+    * the path to be in userspace. We could then set an identity transform
+    * on the DrawTarget and do all drawing in device space. This is
+    * undesirable because it requires transforming patterns, gradients,
+    * clips, etc. into device space and it would not work for stroking.
+    * What we do instead is convert the path back to user space when it is
+    * drawn, and draw it with the current transform. This makes all drawing
+    * occur correctly.
+    *
+    * There's never both a device space path builder and a user space path
+    * builder present at the same time. There is also never a path and a
+    * path builder present at the same time. When writing proceeds on an
+    * existing path the Path is cleared and a new builder is created.
+    *
+    * mPath is always in user-space.
+    */
+  RefPtr<mozilla::gfx::PathBuilder> mDSPathBuilder;
+
 protected:
   virtual HTMLCanvasElement* GetCanvasElement() = 0;
 
@@ -622,6 +663,9 @@ protected:
   {
     return NeedToDrawShadow() || NeedToApplyFilter();
   }
+
+  // Ensures a path in UserSpace is available.
+  void EnsureUserSpacePath(const CanvasWindingRule& aWinding = CanvasWindingRule::Nonzero);
 };
 
  NS_DEFINE_STATIC_IID_ACCESSOR(BasicRenderingContext2D,
