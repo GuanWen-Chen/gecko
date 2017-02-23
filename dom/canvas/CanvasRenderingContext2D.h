@@ -95,26 +95,6 @@ public:
   void RemoveHitRegion(const nsAString& aId);
   void ClearHitRegions();
 
-  void DrawImage(const CanvasImageSource& aImage, double aDx, double aDy,
-                 mozilla::ErrorResult& aError) override
-  {
-    DrawImage(aImage, 0.0, 0.0, 0.0, 0.0, aDx, aDy, 0.0, 0.0, 0, aError);
-  }
-
-  void DrawImage(const CanvasImageSource& aImage, double aDx, double aDy,
-                 double aDw, double aDh, mozilla::ErrorResult& aError) override
-  {
-    DrawImage(aImage, 0.0, 0.0, 0.0, 0.0, aDx, aDy, aDw, aDh, 2, aError);
-  }
-
-  void DrawImage(const CanvasImageSource& aImage,
-                 double aSx, double aSy, double aSw, double aSh,
-                 double aDx, double aDy, double aDw, double aDh,
-                 mozilla::ErrorResult& aError) override
-  {
-    DrawImage(aImage, aSx, aSy, aSw, aSh, aDx, aDy, aDw, aDh, 6, aError);
-  }
-
   already_AddRefed<ImageData>
     CreateImageData(JSContext* aCx, double aSw, double aSh,
                     mozilla::ErrorResult& aError);
@@ -275,9 +255,6 @@ public:
 
   void OnShutdown();
 
-  // Check the global setup, as well as the compositor type:
-  bool AllowOpenGLCanvas() const;
-
 protected:
   HTMLCanvasElement* GetCanvasElement() override { return mCanvasElement; }
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
@@ -406,20 +383,6 @@ protected:
    */
   void UpdateFilter();
 
-  nsLayoutUtils::SurfaceFromElementResult
-    CachedSurfaceFromElement(Element* aElement);
-
-  void DrawImage(const CanvasImageSource& aImgElt,
-                 double aSx, double aSy, double aSw, double aSh,
-                 double aDx, double aDy, double aDw, double aDh,
-                 uint8_t aOptional_argc, mozilla::ErrorResult& aError);
-
-  void DrawDirectlyToCanvas(const nsLayoutUtils::DirectDrawInfo& aImage,
-                            mozilla::gfx::Rect* aBounds,
-                            mozilla::gfx::Rect aDest,
-                            mozilla::gfx::Rect aSrc,
-                            gfx::IntSize aImgSize);
-
   nsString& GetFont()
   {
     /* will initilize the value if not set, else does nothing */
@@ -437,10 +400,6 @@ protected:
   static void AddDemotableContext(CanvasRenderingContext2D* aContext);
   static void RemoveDemotableContext(CanvasRenderingContext2D* aContext);
 
-  RenderingMode mRenderingMode;
-
-  layers::LayersBackend mCompositorBackend;
-
   // Member vars
 
   // This is true when the canvas is valid, but of zero size, this requires
@@ -454,9 +413,6 @@ protected:
   bool mResetLayer;
   // This is needed for drawing in drawAsyncXULElement
   bool mIPC;
-  // True if the current DrawTarget is using skia-gl, used so we can avoid
-  // requesting the DT from mBufferProvider to check.
-  bool mIsSkiaGL;
 
   bool mHasPendingStableStateCallback;
 
@@ -474,6 +430,7 @@ protected:
   // what it thinks is best
   CanvasDrawObserver* mDrawObserver;
   void RemoveDrawObserver();
+  void DidImageDrawCall() override;
 
   RefPtr<CanvasShutdownObserver> mShutdownObserver;
   void RemoveShutdownObserver();
