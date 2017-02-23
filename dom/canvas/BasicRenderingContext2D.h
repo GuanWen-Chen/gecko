@@ -80,14 +80,20 @@ public:
     }
   }
 
+  // Check the global setup, as well as the compositor type:
+  bool AllowOpenGLCanvas() const;
+
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_BASICRENDERINGCONTEXT2D_IID)
 protected:
   virtual ~BasicRenderingContext2D() {}
 public:
   explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
-    // these are the default values from the Canvas spec
-    : mWidth(0), mHeight(0)
-    , mPathTransformWillUpdate(false) {}
+    : mRenderingMode(RenderingMode::OpenGLBackendMode)
+    , mCompositorBackend(aCompositorBackend)
+      // these are the default values from the Canvas spec
+    , mWidth(0), mHeight(0)
+    , mPathTransformWillUpdate(false)
+    , mIsSkiaGL(false) {}
 
   //
   // CanvasState
@@ -256,26 +262,26 @@ public:
   //
   // CanvasDrawImage
   //
-  virtual void DrawImage(const CanvasImageSource& aImage,
-                         double aDx,
-                         double aDy,
-                         mozilla::ErrorResult& aError) = 0;
-  virtual void DrawImage(const CanvasImageSource& aImage,
-                         double aDx,
-                         double aDy,
-                         double aDw,
-                         double aDh,
-                         mozilla::ErrorResult& aError) = 0;
-  virtual void DrawImage(const CanvasImageSource& aImage,
-                         double aSx,
-                         double aSy,
-                         double aSw,
-                         double aSh,
-                         double aDx,
-                         double aDy,
-                         double aDw,
-                         double aDh,
-                         mozilla::ErrorResult& aError) = 0;
+  void DrawImage(const CanvasImageSource& aImage, double aDx, double aDy,
+                 mozilla::ErrorResult& aError)
+  {
+    DrawImage(aImage, 0.0, 0.0, 0.0, 0.0, aDx, aDy, 0.0, 0.0, 0, aError);
+  }
+
+  void DrawImage(const CanvasImageSource& aImage, double aDx, double aDy,
+                 double aDw, double aDh, mozilla::ErrorResult& aError)
+  {
+    DrawImage(aImage, 0.0, 0.0, 0.0, 0.0, aDx, aDy, aDw, aDh, 2, aError);
+  }
+
+  void DrawImage(const CanvasImageSource& aImage,
+                 double aSx, double aSy, double aSw, double aSh,
+                 double aDx, double aDy, double aDw, double aDh,
+                 mozilla::ErrorResult& aError)
+  {
+    DrawImage(aImage, aSx, aSy, aSw, aSh, aDx, aDy, aDw, aDh, 6, aError);
+  }
+
 
   //
   // CanvasPathDrawingStyles
@@ -575,6 +581,11 @@ protected:
   };
 
   // Member vars
+
+  RenderingMode mRenderingMode;
+
+  layers::LayersBackend mCompositorBackend;
+
   AutoTArray<ContextState, 3> mStyleStack;
 
   int32_t mWidth, mHeight;
@@ -634,6 +645,10 @@ protected:
     */
   RefPtr<mozilla::gfx::PathBuilder> mDSPathBuilder;
 
+  // True if the current DrawTarget is using skia-gl, used so we can avoid
+  // requesting the DT from mBufferProvider to check.
+  bool mIsSkiaGL;
+
 protected:
   virtual HTMLCanvasElement* GetCanvasElement() = 0;
 
@@ -663,6 +678,11 @@ protected:
   inline const ContextState& CurrentState() const {
     return mStyleStack[mStyleStack.Length() - 1];
   }
+
+  void DrawImage(const CanvasImageSource& aImgElt,
+                 double aSx, double aSy, double aSw, double aSh,
+                 double aDx, double aDy, double aDw, double aDh,
+                 uint8_t aOptional_argc, mozilla::ErrorResult& aError);
 
   /**
    * Needs to be called before updating the transform. This makes a call to
@@ -732,6 +752,8 @@ protected:
     */
   virtual bool NeedToApplyFilter() = 0;
 
+  virtual void DidImageDrawCall() = 0;
+
   bool NeedToCalculateBounds()
   {
     return NeedToDrawShadow() || NeedToApplyFilter();
@@ -746,6 +768,16 @@ protected:
    * After calling this function mPathTransformWillUpdate will be false
    */
   void EnsureWritablePath();
+
+  nsLayoutUtils::SurfaceFromElementResult
+    CachedSurfaceFromElement(Element* aElement);
+
+
+  void DrawDirectlyToCanvas(const nsLayoutUtils::DirectDrawInfo& aImage,
+                            mozilla::gfx::Rect* aBounds,
+                            mozilla::gfx::Rect aDest,
+                            mozilla::gfx::Rect aSrc,
+                            gfx::IntSize aImgSize);
 };
 
  NS_DEFINE_STATIC_IID_ACCESSOR(BasicRenderingContext2D,

@@ -4,8 +4,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "AdjustedTarget.h"
+#include "CanvasImageCache.h"
 #include "CanvasUtils.h"
+#include "DrawResult.h"
 #include "gfxUtils.h"
+#include "GLContext.h"
+#include "ImageRegion.h"
 #include "mozilla/dom/BasicRenderingContext2D.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 #include "mozilla/dom/HTMLImageElement.h"
@@ -17,22 +21,37 @@
 #include "nsPrintfCString.h"
 #include "nsStyleUtil.h"
 
+#include "SkiaGLGlue.h"
+#ifdef USE_SKIA
+#include "GLBlitHelper.h"
+#include "SurfaceTypes.h"
+#endif
+
 using mozilla::CanvasUtils::FloatValidate;
 using mozilla::gfx::AntialiasMode;
 using mozilla::gfx::ArcToBezier;
 using mozilla::gfx::CapStyle;
 using mozilla::gfx::Color;
 using mozilla::gfx::DrawOptions;
+using mozilla::gfx::DrawSurfaceOptions;
 using mozilla::gfx::ExtendMode;
 using mozilla::gfx::FillRule;
+using mozilla::gfx::IntPoint;
 using mozilla::gfx::JoinStyle;
+using mozilla::gfx::LogReason;
 using mozilla::gfx::IntSize;
+using mozilla::gfx::NativeSurface;
+using mozilla::gfx::NativeSurfaceType;
 using mozilla::gfx::Path;
+using mozilla::gfx::SamplingBounds;
 using mozilla::gfx::SamplingFilter;
 using mozilla::gfx::Size;
 using mozilla::gfx::SourceSurface;
 using mozilla::gfx::StrokeOptions;
 using mozilla::gfx::ToDeviceColor;
+using mozilla::image::DrawResult;
+using mozilla::image::ImageRegion;
+using mozilla::layers::AutoLockImage;
 
 namespace mozilla {
 namespace dom{
@@ -1338,6 +1357,488 @@ BasicRenderingContext2D::LineDashOffset() const {
   return CurrentState().dashOffset;
 }
 
+// Returns a surface that contains only the part needed to draw aSourceRect.
+// On entry, aSourceRect is relative to aSurface, and on return aSourceRect is
+// relative to the returned surface.
+static already_AddRefed<SourceSurface>
+ExtractSubrect(SourceSurface* aSurface, gfx::Rect* aSourceRect, DrawTarget* aTargetDT)
+{
+  gfx::Rect roundedOutSourceRect = *aSourceRect;
+  roundedOutSourceRect.RoundOut();
+  gfx::IntRect roundedOutSourceRectInt;
+  if (!roundedOutSourceRect.ToIntRect(&roundedOutSourceRectInt)) {
+    RefPtr<SourceSurface> surface(aSurface);
+    return surface.forget();
+  }
+
+  RefPtr<DrawTarget> subrectDT =
+    aTargetDT->CreateSimilarDrawTarget(roundedOutSourceRectInt.Size(), SurfaceFormat::B8G8R8A8);
+
+  if (!subrectDT) {
+    RefPtr<SourceSurface> surface(aSurface);
+    return surface.forget();
+  }
+
+  *aSourceRect -= roundedOutSourceRect.TopLeft();
+
+  subrectDT->CopySurface(aSurface, roundedOutSourceRectInt, IntPoint());
+  return subrectDT->Snapshot();
+}
+
+//
+// image
+//
+
+void
+BasicRenderingContext2D::DrawDirectlyToCanvas(
+                         const nsLayoutUtils::DirectDrawInfo& aImage,
+                         gfx::Rect* aBounds,
+                         gfx::Rect aDest,
+                         gfx::Rect aSrc,
+                         gfx::IntSize aImgSize)
+{
+  MOZ_ASSERT(aSrc.width > 0 && aSrc.height > 0,
+             "Need positive source width and height");
+
+  gfxMatrix contextMatrix;
+  AdjustedTarget tempTarget(this, aBounds->IsEmpty() ? nullptr: aBounds);
+
+  // Get any existing transforms on the context, including transformations used
+  // for context shadow.
+  if (tempTarget) {
+    Matrix matrix = tempTarget->GetTransform();
+    contextMatrix = gfxMatrix(matrix._11, matrix._12, matrix._21,
+                              matrix._22, matrix._31, matrix._32);
+  }
+  gfxSize contextScale(contextMatrix.ScaleFactors(true));
+
+  // Scale the dest rect to include the context scale.
+  aDest.Scale(contextScale.width, contextScale.height);
+
+  // Scale the image size to the dest rect, and adjust the source rect to match.
+  gfxSize scale(aDest.width / aSrc.width, aDest.height / aSrc.height);
+  IntSize scaledImageSize = IntSize::Ceil(aImgSize.width * scale.width,
+                                          aImgSize.height * scale.height);
+  aSrc.Scale(scale.width, scale.height);
+
+  // We're wrapping tempTarget's (our) DrawTarget here, so we need to restore
+  // the matrix even though this is a temp gfxContext.
+  AutoRestoreTransform autoRestoreTransform(mTarget);
+
+  RefPtr<gfxContext> context = gfxContext::CreateOrNull(tempTarget);
+  if (!context) {
+    gfxDevCrash(LogReason::InvalidContext) << "Canvas context problem";
+    return;
+  }
+  context->SetMatrix(contextMatrix.
+                       Scale(1.0 / contextScale.width,
+                             1.0 / contextScale.height).
+                       Translate(aDest.x - aSrc.x, aDest.y - aSrc.y));
+
+  // FLAG_CLAMP is added for increased performance, since we never tile here.
+  uint32_t modifiedFlags = aImage.mDrawingFlags | imgIContainer::FLAG_CLAMP;
+
+  CSSIntSize sz(scaledImageSize.width, scaledImageSize.height); // XXX hmm is scaledImageSize really in CSS pixels?
+  SVGImageContext svgContext(sz, Nothing(), CurrentState().globalAlpha);
+
+  auto result = aImage.mImgContainer->
+    Draw(context, scaledImageSize,
+         ImageRegion::Create(gfxRect(aSrc.x, aSrc.y, aSrc.width, aSrc.height)),
+         aImage.mWhichFrame, SamplingFilter::GOOD, Some(svgContext), modifiedFlags, 1.0);
+
+  if (result != DrawResult::SUCCESS) {
+    NS_WARNING("imgIContainer::Draw failed");
+  }
+}
+
+
+static void
+ClipImageDimension(double& aSourceCoord, double& aSourceSize, int32_t aImageSize,
+                   double& aDestCoord, double& aDestSize)
+{
+  double scale = aDestSize / aSourceSize;
+  if (aSourceCoord < 0.0) {
+    double destEnd = aDestCoord + aDestSize;
+    aDestCoord -= aSourceCoord * scale;
+    aDestSize = destEnd - aDestCoord;
+    aSourceSize += aSourceCoord;
+    aSourceCoord = 0.0;
+  }
+  double delta = aImageSize - (aSourceCoord + aSourceSize);
+  if (delta < 0.0) {
+    aDestSize += delta * scale;
+    aSourceSize = aImageSize - aSourceCoord;
+  }
+}
+
+bool
+BasicRenderingContext2D::AllowOpenGLCanvas() const
+{
+  // If we somehow didn't have the correct compositor in the constructor,
+  // we could do something like this to get it:
+  //
+  // HTMLCanvasElement* el = GetCanvas();
+  // if (el) {
+  //   mCompositorBackend = el->GetCompositorBackendType();
+  // }
+  //
+  // We could have LAYERS_NONE if there was no widget at the time of
+  // canvas creation, but in that case the
+  // HTMLCanvasElement::GetCompositorBackendType would return LAYERS_NONE
+  // as well, so it wouldn't help much.
+
+  return (mCompositorBackend == layers::LayersBackend::LAYERS_OPENGL) &&
+    gfxPlatform::GetPlatform()->AllowOpenGLCanvas();
+}
+
+// Acts like nsLayoutUtils::SurfaceFromElement, but it'll attempt
+// to pull a SourceSurface from our cache. This allows us to avoid
+// reoptimizing surfaces if content and canvas backends are different.
+nsLayoutUtils::SurfaceFromElementResult
+BasicRenderingContext2D::CachedSurfaceFromElement(Element* aElement)
+{
+  nsLayoutUtils::SurfaceFromElementResult res;
+  nsCOMPtr<nsIImageLoadingContent> imageLoader = do_QueryInterface(aElement);
+  if (!imageLoader) {
+    return res;
+  }
+
+  nsCOMPtr<imgIRequest> imgRequest;
+  imageLoader->GetRequest(nsIImageLoadingContent::CURRENT_REQUEST,
+                          getter_AddRefs(imgRequest));
+  if (!imgRequest) {
+    return res;
+  }
+
+  uint32_t status = 0;
+  if (NS_FAILED(imgRequest->GetImageStatus(&status)) ||
+      !(status & imgIRequest::STATUS_LOAD_COMPLETE)) {
+    return res;
+  }
+
+  nsCOMPtr<nsIPrincipal> principal;
+  if (NS_FAILED(imgRequest->GetImagePrincipal(getter_AddRefs(principal))) ||
+      !principal) {
+    return res;
+  }
+
+  res.mSourceSurface =
+    CanvasImageCache::LookupAllCanvas(aElement, mIsSkiaGL);
+  if (!res.mSourceSurface) {
+    return res;
+  }
+
+  int32_t corsmode = imgIRequest::CORS_NONE;
+  if (NS_SUCCEEDED(imgRequest->GetCORSMode(&corsmode))) {
+    res.mCORSUsed = corsmode != imgIRequest::CORS_NONE;
+  }
+
+  res.mSize = res.mSourceSurface->GetSize();
+  res.mPrincipal = principal.forget();
+  res.mIsWriteOnly = false;
+  res.mImageRequest = imgRequest.forget();
+
+  return res;
+}
+
+// drawImage(in HTMLImageElement image, in float dx, in float dy);
+//   -- render image from 0,0 at dx,dy top-left coords
+// drawImage(in HTMLImageElement image, in float dx, in float dy, in float dw, in float dh);
+//   -- render image from 0,0 at dx,dy top-left coords clipping it to dw,dh
+// drawImage(in HTMLImageElement image, in float sx, in float sy, in float sw, in float sh, in float dx, in float dy, in float dw, in float dh);
+//   -- render the region defined by (sx,sy,sw,wh) in image-local space into the region (dx,dy,dw,dh) on the canvas
+
+// If only dx and dy are passed in then optional_argc should be 0. If only
+// dx, dy, dw and dh are passed in then optional_argc should be 2. The only
+// other valid value for optional_argc is 6 if sx, sy, sw, sh, dx, dy, dw and dh
+// are all passed in.
+
+void
+BasicRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
+                                   double aSx, double aSy, double aSw,
+                                   double aSh, double aDx, double aDy,
+                                   double aDw, double aDh,
+                                   uint8_t aOptional_argc,
+                                   ErrorResult& aError)
+{
+  DidImageDrawCall();
+
+  MOZ_ASSERT(aOptional_argc == 0 || aOptional_argc == 2 || aOptional_argc == 6);
+
+  if (!ValidateRect(aDx, aDy, aDw, aDh, true)) {
+    return;
+  }
+  if (aOptional_argc == 6) {
+    if (!ValidateRect(aSx, aSy, aSw, aSh, true)) {
+      return;
+    }
+  }
+
+  RefPtr<SourceSurface> srcSurf;
+  gfx::IntSize imgSize;
+
+  Element* element = nullptr;
+
+  EnsureTarget();
+  if (aImage.IsHTMLCanvasElement()) {
+    HTMLCanvasElement* canvas = &aImage.GetAsHTMLCanvasElement();
+    element = canvas;
+    nsIntSize size = canvas->GetSize();
+    if (size.width == 0 || size.height == 0) {
+      aError.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
+      return;
+    }
+  } else if (aImage.IsImageBitmap()) {
+    ImageBitmap& imageBitmap = aImage.GetAsImageBitmap();
+    srcSurf = imageBitmap.PrepareForDrawTarget(mTarget);
+
+    if (!srcSurf) {
+      return;
+    }
+
+    imgSize = gfx::IntSize(imageBitmap.Width(), imageBitmap.Height());
+  }
+  else {
+    if (aImage.IsHTMLImageElement()) {
+      HTMLImageElement* img = &aImage.GetAsHTMLImageElement();
+      element = img;
+    } else {
+      HTMLVideoElement* video = &aImage.GetAsHTMLVideoElement();
+      video->MarkAsContentSource(mozilla::dom::HTMLVideoElement::CallerAPI::DRAW_IMAGE);
+      element = video;
+    }
+
+    srcSurf =
+     CanvasImageCache::LookupCanvas(element, GetCanvasElement(), &imgSize, mIsSkiaGL);
+  }
+
+  nsLayoutUtils::DirectDrawInfo drawInfo;
+
+#ifdef USE_SKIA_GPU
+  if (mRenderingMode == RenderingMode::OpenGLBackendMode &&
+      mIsSkiaGL &&
+      !srcSurf &&
+      aImage.IsHTMLVideoElement() &&
+      AllowOpenGLCanvas()) {
+    mozilla::gl::GLContext* gl = gfxPlatform::GetPlatform()->GetSkiaGLGlue()->GetGLContext();
+    MOZ_ASSERT(gl);
+
+    HTMLVideoElement* video = &aImage.GetAsHTMLVideoElement();
+    if (!video) {
+      return;
+    }
+
+    if (video->ContainsRestrictedContent()) {
+      aError.Throw(NS_ERROR_NOT_AVAILABLE);
+      return;
+    }
+
+    uint16_t readyState;
+    if (NS_SUCCEEDED(video->GetReadyState(&readyState)) &&
+        readyState < nsIDOMHTMLMediaElement::HAVE_CURRENT_DATA) {
+      // still loading, just return
+      return;
+    }
+
+    // If it doesn't have a principal, just bail
+    nsCOMPtr<nsIPrincipal> principal = video->GetCurrentVideoPrincipal();
+    if (!principal) {
+      aError.Throw(NS_ERROR_NOT_AVAILABLE);
+      return;
+    }
+
+    mozilla::layers::ImageContainer* container = video->GetImageContainer();
+    if (!container) {
+      aError.Throw(NS_ERROR_NOT_AVAILABLE);
+      return;
+    }
+
+    AutoLockImage lockImage(container);
+    layers::Image* srcImage = lockImage.GetImage();
+    if (!srcImage) {
+      aError.Throw(NS_ERROR_NOT_AVAILABLE);
+      return;
+    }
+
+    gl->MakeCurrent();
+    GLuint videoTexture = 0;
+    gl->fGenTextures(1, &videoTexture);
+    // skiaGL expect upload on drawing, and uses texture 0 for texturing,
+    // so we must active texture 0 and bind the texture for it.
+    gl->fActiveTexture(LOCAL_GL_TEXTURE0);
+    gl->fBindTexture(LOCAL_GL_TEXTURE_2D, videoTexture);
+
+    gl->fTexImage2D(LOCAL_GL_TEXTURE_2D, 0, LOCAL_GL_RGB, srcImage->GetSize().width, srcImage->GetSize().height, 0, LOCAL_GL_RGB, LOCAL_GL_UNSIGNED_SHORT_5_6_5, nullptr);
+    gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_S, LOCAL_GL_CLAMP_TO_EDGE);
+    gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_T, LOCAL_GL_CLAMP_TO_EDGE);
+    gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MAG_FILTER, LOCAL_GL_LINEAR);
+    gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MIN_FILTER, LOCAL_GL_LINEAR);
+
+    const gl::OriginPos destOrigin = gl::OriginPos::TopLeft;
+    bool ok = gl->BlitHelper()->BlitImageToTexture(srcImage, srcImage->GetSize(),
+                                                   videoTexture, LOCAL_GL_TEXTURE_2D,
+                                                   destOrigin);
+    if (ok) {
+      NativeSurface texSurf;
+      texSurf.mType = NativeSurfaceType::OPENGL_TEXTURE;
+      texSurf.mFormat = SurfaceFormat::R5G6B5_UINT16;
+      texSurf.mSize.width = srcImage->GetSize().width;
+      texSurf.mSize.height = srcImage->GetSize().height;
+      texSurf.mSurface = (void*)((uintptr_t)videoTexture);
+
+      srcSurf = mTarget->CreateSourceSurfaceFromNativeSurface(texSurf);
+      if (!srcSurf) {
+        gl->fDeleteTextures(1, &videoTexture);
+      }
+      imgSize.width = srcImage->GetSize().width;
+      imgSize.height = srcImage->GetSize().height;
+
+      int32_t displayWidth = video->VideoWidth();
+      int32_t displayHeight = video->VideoHeight();
+      aSw *= (double)imgSize.width / (double)displayWidth;
+      aSh *= (double)imgSize.height / (double)displayHeight;
+    } else {
+      gl->fDeleteTextures(1, &videoTexture);
+    }
+    srcImage = nullptr;
+
+    if (GetCanvasElement()) {
+      CanvasUtils::DoDrawImageSecurityCheck(GetCanvasElement(),
+                                            principal, false,
+                                            video->GetCORSMode() != CORS_NONE);
+    }
+
+  }
+#endif
+  if (!srcSurf) {
+    // The canvas spec says that drawImage should draw the first frame
+    // of animated images. We also don't want to rasterize vector images.
+    uint32_t sfeFlags = nsLayoutUtils::SFE_WANT_FIRST_FRAME |
+                        nsLayoutUtils::SFE_NO_RASTERIZING_VECTORS;
+
+    nsLayoutUtils::SurfaceFromElementResult res =
+      BasicRenderingContext2D::CachedSurfaceFromElement(element);
+
+    if (!res.mSourceSurface) {
+      res = nsLayoutUtils::SurfaceFromElement(element, sfeFlags, mTarget);
+    }
+
+    if (!res.mSourceSurface && !res.mDrawInfo.mImgContainer) {
+      // The spec says to silently do nothing in the following cases:
+      //   - The element is still loading.
+      //   - The image is bad, but it's not in the broken state (i.e., we could
+      //     decode the headers and get the size).
+      if (!res.mIsStillLoading && !res.mHasSize) {
+        aError.Throw(NS_ERROR_NOT_AVAILABLE);
+      }
+      return;
+    }
+
+    imgSize = res.mSize;
+
+    // Scale sw/sh based on aspect ratio
+    if (aImage.IsHTMLVideoElement()) {
+      HTMLVideoElement* video = &aImage.GetAsHTMLVideoElement();
+      int32_t displayWidth = video->VideoWidth();
+      int32_t displayHeight = video->VideoHeight();
+      aSw *= (double)imgSize.width / (double)displayWidth;
+      aSh *= (double)imgSize.height / (double)displayHeight;
+    }
+
+    if (GetCanvasElement()) {
+      CanvasUtils::DoDrawImageSecurityCheck(GetCanvasElement(),
+                                            res.mPrincipal, res.mIsWriteOnly,
+                                            res.mCORSUsed);
+    }
+
+    if (res.mSourceSurface) {
+      if (res.mImageRequest) {
+        CanvasImageCache::NotifyDrawImage(element, GetCanvasElement(), res.mSourceSurface, imgSize, mIsSkiaGL);
+      }
+      srcSurf = res.mSourceSurface;
+    } else {
+      drawInfo = res.mDrawInfo;
+    }
+  }
+
+  if (aOptional_argc == 0) {
+    aSx = aSy = 0.0;
+    aDw = aSw = (double) imgSize.width;
+    aDh = aSh = (double) imgSize.height;
+  } else if (aOptional_argc == 2) {
+    aSx = aSy = 0.0;
+    aSw = (double) imgSize.width;
+    aSh = (double) imgSize.height;
+  }
+
+  if (aSw == 0.0 || aSh == 0.0) {
+    aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
+    return;
+  }
+
+  ClipImageDimension(aSx, aSw, imgSize.width, aDx, aDw);
+  ClipImageDimension(aSy, aSh, imgSize.height, aDy, aDh);
+
+  if (aSw <= 0.0 || aSh <= 0.0 ||
+      aDw <= 0.0 || aDh <= 0.0) {
+    // source and/or destination are fully clipped, so nothing is painted
+    return;
+  }
+
+  SamplingFilter samplingFilter;
+  AntialiasMode antialiasMode;
+
+  if (CurrentState().imageSmoothingEnabled) {
+    samplingFilter = gfx::SamplingFilter::LINEAR;
+    antialiasMode = AntialiasMode::DEFAULT;
+  } else {
+    samplingFilter = gfx::SamplingFilter::POINT;
+    antialiasMode = AntialiasMode::NONE;
+  }
+
+  gfx::Rect bounds;
+
+  if (NeedToCalculateBounds()) {
+    bounds = gfx::Rect(aDx, aDy, aDw, aDh);
+    bounds = mTarget->GetTransform().TransformBounds(bounds);
+  }
+
+  if (!IsTargetValid()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+
+  if (srcSurf) {
+    gfx::Rect sourceRect(aSx, aSy, aSw, aSh);
+    if (element == GetCanvasElement()) {
+      // srcSurf is a snapshot of mTarget. If we draw to mTarget now, we'll
+      // trigger a COW copy of the whole canvas into srcSurf. That's a huge
+      // waste if sourceRect doesn't cover the whole canvas.
+      // We avoid copying the whole canvas by manually copying just the part
+      // that we need.
+      srcSurf = ExtractSubrect(srcSurf, &sourceRect, mTarget);
+    }
+
+    AdjustedTarget tempTarget(this, bounds.IsEmpty() ? nullptr : &bounds);
+    if (!tempTarget) {
+      gfxDevCrash(LogReason::InvalidDrawTarget) << "Invalid adjusted target in Canvas2D " << gfx::hexa((DrawTarget*)mTarget) << ", " << NeedToDrawShadow() << NeedToApplyFilter();
+      return;
+    }
+    tempTarget->DrawSurface(srcSurf,
+                  gfx::Rect(aDx, aDy, aDw, aDh),
+                  sourceRect,
+                  DrawSurfaceOptions(samplingFilter, SamplingBounds::UNBOUNDED),
+                  DrawOptions(CurrentState().globalAlpha, UsedOperation(), antialiasMode));
+  } else {
+    DrawDirectlyToCanvas(drawInfo, &bounds,
+                         gfx::Rect(aDx, aDy, aDw, aDh),
+                         gfx::Rect(aSx, aSy, aSw, aSh),
+                         imgSize);
+  }
+
+  RedrawUser(gfxRect(aDx, aDy, aDw, aDh));
+}
+
 Pattern&
 CanvasGeneralPattern::ForStyle(BasicRenderingContext2D* aCtx,
                                BasicRenderingContext2D::Style aStyle,
@@ -1373,7 +1874,6 @@ CanvasGeneralPattern::ForStyle(BasicRenderingContext2D* aCtx,
                                             state.patternStyles[aStyle]->mForceWriteOnly,
                                             state.patternStyles[aStyle]->mCORSUsed);
     }
-
     ExtendMode mode;
     if (state.patternStyles[aStyle]->mRepeat == CanvasPattern::RepeatMode::NOREPEAT) {
       mode = ExtendMode::CLAMP;
