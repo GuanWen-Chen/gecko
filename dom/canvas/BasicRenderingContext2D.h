@@ -87,11 +87,12 @@ public:
 protected:
   virtual ~BasicRenderingContext2D() {}
 public:
-  explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
+  explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend,
+                                   int32_t aWidth = 0, int32_t aHeight = 0)
     : mRenderingMode(RenderingMode::OpenGLBackendMode)
     , mCompositorBackend(aCompositorBackend)
       // these are the default values from the Canvas spec
-    , mWidth(0), mHeight(0)
+    , mWidth(aWidth), mHeight(aHeight)
     , mPathTransformWillUpdate(false)
     , mIsSkiaGL(false) {}
 
