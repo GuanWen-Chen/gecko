@@ -137,15 +137,14 @@ CanvasRenderingContext2D implements CanvasTextDrawingStyles;
 CanvasRenderingContext2D implements CanvasPathMethods;
 CanvasRenderingContext2D implements CanvasHitRegions;
 
-
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasState {
   // state
   void save(); // push state on state stack
   void restore(); // pop state stack and restore state
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasTransform {
   // transformations (default transform is the identity matrix)
 // NOT IMPLEMENTED           attribute SVGMatrix currentTransform;
@@ -163,20 +162,20 @@ interface CanvasTransform {
   void resetTransform();
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasCompositing {
   attribute unrestricted double globalAlpha; // (default 1.0)
   [Throws]
   attribute DOMString globalCompositeOperation; // (default source-over)
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasImageSmoothing {
   // drawing images
   attribute boolean imageSmoothingEnabled;
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasFillStrokeStyles {
   // colors and styles (see also the CanvasPathDrawingStyles interface)
   attribute (DOMString or CanvasGradient or CanvasPattern) strokeStyle; // (default black)
@@ -189,7 +188,7 @@ interface CanvasFillStrokeStyles {
   CanvasPattern? createPattern(CanvasImageSource image, [TreatNullAs=EmptyString] DOMString repetition);
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasShadowStyles {
   [LenientFloat]
   attribute double shadowOffsetX; // (default 0)
@@ -206,7 +205,7 @@ interface CanvasFilters {
   attribute DOMString filter; // (default empty string = no filter)
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasRect {
   [LenientFloat]
   void clearRect(double x, double y, double w, double h);
@@ -216,7 +215,7 @@ interface CanvasRect {
   void strokeRect(double x, double y, double w, double h);
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasDrawPath {
   // path API (see also CanvasPathMethods)
   void beginPath();
@@ -254,7 +253,7 @@ interface CanvasText {
   TextMetrics measureText(DOMString text);
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasDrawImage {
   [Throws, LenientFloat]
   void drawImage(CanvasImageSource image, double dx, double dy);
@@ -279,7 +278,7 @@ interface CanvasImageData {
   void putImageData(ImageData imagedata, double dx, double dy, double dirtyX, double dirtyY, double dirtyWidth, double dirtyHeight);
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasPathDrawingStyles {
   // line caps/joins
   [LenientFloat]
@@ -305,7 +304,7 @@ interface CanvasTextDrawingStyles {
   attribute DOMString textBaseline; // "top", "hanging", "middle", "alphabetic", "ideographic", "bottom" (default: "alphabetic")
 };
 
-[NoInterfaceObject]
+[NoInterfaceObject, Exposed=(Window, PaintWorklet)]
 interface CanvasPathMethods {
   // shared path API methods
   void closePath();
@@ -341,6 +340,7 @@ interface CanvasHitRegions {
   [Pref="canvas.hitregions.enabled"] void clearHitRegions();
 };
 
+[Exposed=(Window, PaintWorklet)]
 interface CanvasGradient {
   // opaque object
   [Throws]
@@ -348,6 +348,7 @@ interface CanvasGradient {
   void addColorStop(float offset, DOMString color);
 };
 
+[Exposed=(Window, PaintWorklet)]
 interface CanvasPattern {
   // opaque object
   // [Throws, LenientFloat] - could not do this overload because of bug 1020975

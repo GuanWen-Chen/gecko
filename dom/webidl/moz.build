@@ -718,6 +718,7 @@ WEBIDL_FILES = [
     'OfflineResourceList.webidl',
     'OffscreenCanvas.webidl',
     'OscillatorNode.webidl',
+    'PaintRenderingContext2D.webidl',
     'PaintRequest.webidl',
     'PaintRequestList.webidl',
     'PaintWorkletGlobalScope.webidl',
