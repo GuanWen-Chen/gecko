@@ -47,15 +47,13 @@ template<typename T> class Optional;
 struct CanvasBidiProcessor;
 class CanvasRenderingContext2DUserData;
 class CanvasDrawObserver;
-class CanvasShutdownObserver;
 
 /**
  ** CanvasRenderingContext2D
  **/
 class CanvasRenderingContext2D final :
   public nsICanvasRenderingContextInternal,
-  public BasicRenderingContext2D,
-  public nsWrapperCache
+  public BasicRenderingContext2D
 {
   virtual ~CanvasRenderingContext2D();
 
@@ -164,7 +162,6 @@ public:
 
   virtual int32_t GetWidth() const override;
   virtual int32_t GetHeight() const override;
-  gfx::IntSize GetSize() const { return gfx::IntSize(mWidth, mHeight); }
 
   // nsICanvasRenderingContextInternal
   /**
@@ -253,8 +250,6 @@ public:
   // return true and fills in the bound rect if element has a hit region.
   bool GetHitRegionRect(Element* aElement, nsRect& aRect) override;
 
-  void OnShutdown();
-
 protected:
   HTMLCanvasElement* GetCanvasElement() override { return mCanvasElement; }
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
@@ -266,10 +261,6 @@ protected:
                                  bool aHasDirtyRect, int32_t aDirtyX, int32_t aDirtyY,
                                  int32_t aDirtyWidth, int32_t aDirtyHeight);
 
-  bool CopyBufferProvider(layers::PersistentBufferProvider& aOld,
-                          gfx::DrawTarget& aTarget,
-                          gfx::IntRect aCopyRect);
-
   /**
    * Internal method to complete initialisation, expects mTarget to have been set
    */
@@ -277,14 +268,6 @@ protected:
 
   nsresult InitializeWithTarget(mozilla::gfx::DrawTarget* aSurface,
                                 int32_t aWidth, int32_t aHeight);
-
-  /**
-    * The number of living nsCanvasRenderingContexts.  When this goes down to
-    * 0, we free the premultiply and unpremultiply tables, if they exist.
-    */
-  static uint32_t sNumLivingContexts;
-
-  static mozilla::gfx::DrawTarget* sErrorTarget;
 
   // Some helpers.  Doesn't modify a color on failure.
   void GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
@@ -301,80 +284,25 @@ protected:
   // Returns whether the font was successfully updated.
   bool SetFontInternal(const nsAString& aFont, mozilla::ErrorResult& aError);
 
-
-  /**
-   * Creates the error target, if it doesn't exist
-   */
-  static void EnsureErrorTarget();
-
   // Report the fillRule has changed.
   void FillRuleChanged();
 
-  /**
-   * Create the backing surfacing, if it doesn't exist. If there is an error
-   * in creating the target then it will put sErrorTarget in place. If there
-   * is in turn an error in creating the sErrorTarget then they would both
-   * be null so IsTargetValid() would still return null.
-   *
-   * Returns the actual rendering mode being used by the created target.
-   */
-  virtual RenderingMode
-  EnsureTarget(const gfx::Rect* aCoveredRect = nullptr,
-               RenderingMode aRenderMode = RenderingMode::DefaultBackendMode) override;
-
-  void RestoreClipsAndTransformToTarget();
-
   bool TrySkiaGLTarget(RefPtr<gfx::DrawTarget>& aOutDT,
-                       RefPtr<layers::PersistentBufferProvider>& aOutProvider);
+                       RefPtr<layers::PersistentBufferProvider>& aOutProvider) override;
 
   bool TrySharedTarget(RefPtr<gfx::DrawTarget>& aOutDT,
-                       RefPtr<layers::PersistentBufferProvider>& aOutProvider);
-
-  bool TryBasicTarget(RefPtr<gfx::DrawTarget>& aOutDT,
-                      RefPtr<layers::PersistentBufferProvider>& aOutProvider);
-
-  void RegisterAllocation();
-
-  void SetInitialState();
-
-  void SetErrorState();
-
-  /**
-   * This method is run at the end of the event-loop spin where
-   * ScheduleStableStateCallback was called.
-   *
-   * We use it to unlock resources that need to be locked while drawing.
-   */
-  void OnStableState();
-
-  /**
-   * Cf. OnStableState.
-   */
-  void ScheduleStableStateCallback();
+                       RefPtr<layers::PersistentBufferProvider>& aOutProvider) override;
 
   /**
    * Disposes an old target and prepares to lazily create a new target.
    */
   void ClearTarget();
 
-  /*
-   * Returns the target to the buffer provider. i.e. this will queue a frame for
-   * rendering.
-   */
-  void ReturnTarget(bool aForceReset = false);
-
-  /**
-   * Check if the target is valid after calling EnsureTarget.
-   */
-  bool IsTargetValid() const override{
-    return !!mTarget && mTarget != sErrorTarget;
-  }
-
   /**
     * Returns the surface format this canvas should be allocated using. Takes
     * into account mOpaque, platform requirements, etc.
     */
-  mozilla::gfx::SurfaceFormat GetSurfaceFormat() const;
+  mozilla::gfx::SurfaceFormat GetSurfaceFormat() const override;
 
   /**
    * Update CurrentState().filter with the filter description for
@@ -414,14 +342,10 @@ protected:
   // This is needed for drawing in drawAsyncXULElement
   bool mIPC;
 
-  bool mHasPendingStableStateCallback;
-
   nsTArray<CanvasRenderingContext2DUserData*> mUserDatas;
 
   // If mCanvasElement is not provided, then a docshell is
   nsCOMPtr<nsIDocShell> mDocShell;
-
-  RefPtr<mozilla::layers::PersistentBufferProvider> mBufferProvider;
 
   uint32_t SkiaGLTex() const;
 
@@ -431,10 +355,6 @@ protected:
   CanvasDrawObserver* mDrawObserver;
   void RemoveDrawObserver();
   void DidImageDrawCall() override;
-
-  RefPtr<CanvasShutdownObserver> mShutdownObserver;
-  void RemoveShutdownObserver();
-  virtual bool AlreadyShutDown() const override{ return !mShutdownObserver; }
 
   /**
     * Flag to avoid duplicate calls to InvalidateFrame. Set to true whenever
