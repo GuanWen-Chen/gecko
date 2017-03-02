@@ -7,6 +7,7 @@
 
 #include "FilterSupport.h"
 #include "gfxTextRun.h"
+#include "Layers.h"
 #include "mozilla/dom/CanvasGradient.h"
 #include "mozilla/dom/CanvasPattern.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
@@ -35,10 +36,27 @@ typedef HTMLImageElementOrHTMLCanvasElementOrHTMLVideoElementOrImageBitmap
 
 extern const mozilla::gfx::Float SIGMA_MAX;
 
+class CanvasShutdownObserver final : public nsIObserver
+{
+public:
+  explicit CanvasShutdownObserver(BasicRenderingContext2D* aCanvas)
+  : mCanvas(aCanvas)
+  {}
+
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSIOBSERVER
+private:
+  ~CanvasShutdownObserver() {}
+
+  BasicRenderingContext2D* mCanvas;
+};
+
 /*
  * BasicRenderingContext2D
  */
-class BasicRenderingContext2D : public nsISupports
+class BasicRenderingContext2D :
+  public nsISupports,
+  public nsWrapperCache
 {
 public:
   enum RenderingMode {
@@ -51,6 +69,10 @@ public:
   // accessing it. In the event of an error it will be equal to
   // sErrorTarget.
   RefPtr<DrawTarget> mTarget;
+
+  void OnShutdown();
+
+  gfx::IntSize GetSize() const { return gfx::IntSize(mWidth, mHeight); }
 
   // this rect is in mTarget's current user space
   virtual void RedrawUser(const gfxRect& aR) = 0;
@@ -85,15 +107,9 @@ public:
 
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_BASICRENDERINGCONTEXT2D_IID)
 protected:
-  virtual ~BasicRenderingContext2D() {}
+  virtual ~BasicRenderingContext2D();
 public:
-  explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
-    : mRenderingMode(RenderingMode::OpenGLBackendMode)
-    , mCompositorBackend(aCompositorBackend)
-      // these are the default values from the Canvas spec
-    , mWidth(0), mHeight(0)
-    , mPathTransformWillUpdate(false)
-    , mIsSkiaGL(false) {}
+  explicit BasicRenderingContext2D(layers::LayersBackend aCompositorBackend);
 
   //
   // CanvasState
@@ -391,10 +407,11 @@ public:
                bool aAnticlockwise, ErrorResult& aError);
 
 protected:
-  friend class CanvasGeneralPattern;
   friend class AdjustedTarget;
-  friend class AdjustedTargetForShadow;
   friend class AdjustedTargetForFilter;
+  friend class AdjustedTargetForShadow;
+  friend class Canvas2dPixelsReporter;
+  friend class CanvasGeneralPattern;
 
   enum class Style : uint8_t {
     STROKE = 0,
@@ -590,6 +607,8 @@ protected:
 
   int32_t mWidth, mHeight;
 
+  RefPtr<mozilla::layers::PersistentBufferProvider> mBufferProvider;
+
   /**
     * We also have a device space pathbuilder. The reason for this is as
     * follows, when a path is being built, but the transform changes, we
@@ -649,10 +668,25 @@ protected:
   // requesting the DT from mBufferProvider to check.
   bool mIsSkiaGL;
 
+  /**
+    * The number of living nsCanvasRenderingContexts.  When this goes down to
+    * 0, we free the premultiply and unpremultiply tables, if they exist.
+    */
+  static uint32_t sNumLivingContexts;
+  static int64_t sCanvasAzureMemoryUsed;
+
+  bool mHasPendingStableStateCallback;
+
+  static mozilla::gfx::DrawTarget* sErrorTarget;
+
 protected:
   virtual HTMLCanvasElement* GetCanvasElement() = 0;
 
-  virtual bool AlreadyShutDown() const = 0;
+  NS_IMETHOD Reset();
+
+  RefPtr<CanvasShutdownObserver> mShutdownObserver;
+  void RemoveShutdownObserver();
+  bool AlreadyShutDown() const { return !mShutdownObserver; }
 
   /**
    * Create the backing surfacing, if it doesn't exist. If there is an error
@@ -662,14 +696,69 @@ protected:
    *
    * Returns the actual rendering mode being used by the created target.
    */
-  virtual RenderingMode
+  RenderingMode
   EnsureTarget(const gfx::Rect* aCoveredRect = nullptr,
-               RenderingMode aRenderMode = RenderingMode::DefaultBackendMode) = 0;
+               RenderingMode aRenderMode = RenderingMode::DefaultBackendMode);
+
+  virtual bool
+  TrySkiaGLTarget(RefPtr<gfx::DrawTarget>& aOutDT,
+                  RefPtr<layers::PersistentBufferProvider>& aOutProvider) = 0;
+
+  virtual bool
+  TrySharedTarget(RefPtr<gfx::DrawTarget>& aOutDT,
+                  RefPtr<layers::PersistentBufferProvider>& aOutProvider) = 0;
+
+  bool TryBasicTarget(RefPtr<gfx::DrawTarget>& aOutDT,
+                      RefPtr<layers::PersistentBufferProvider>& aOutProvider);
+
+  void RegisterAllocation();
+
+  bool CopyBufferProvider(layers::PersistentBufferProvider& aOld,
+                          gfx::DrawTarget& aTarget,
+                          gfx::IntRect aCopyRect);
+
+  void RestoreClipsAndTransformToTarget();
+
+  /*
+   * Returns the target to the buffer provider. i.e. this will queue a frame for
+   * rendering.
+   */
+  void ReturnTarget(bool aForceReset = false);
+
+  /**
+   * Cf. OnStableState.
+   */
+  void ScheduleStableStateCallback();
+
+  /**
+    * Returns the surface format this canvas should be allocated using. Takes
+    * into account mOpaque, platform requirements, etc.
+    */
+  virtual mozilla::gfx::SurfaceFormat GetSurfaceFormat() const = 0;
+
+  /**
+   * This method is run at the end of the event-loop spin where
+   * ScheduleStableStateCallback was called.
+   *
+   * We use it to unlock resources that need to be locked while drawing.
+   */
+  void OnStableState();
+
+  /**
+   * Creates the error target, if it doesn't exist
+   */
+  static void EnsureErrorTarget();
+
+  void SetErrorState();
+
+  void SetInitialState();
 
   /**
    * Check if the target is valid after calling EnsureTarget.
    */
-  virtual bool IsTargetValid() const = 0;
+  bool IsTargetValid() const {
+    return !!mTarget && mTarget != sErrorTarget;
+  }
 
   inline ContextState& CurrentState() {
     return mStyleStack[mStyleStack.Length() - 1];

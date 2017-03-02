@@ -7,6 +7,7 @@
 #include "CanvasImageCache.h"
 #include "CanvasUtils.h"
 #include "DrawResult.h"
+#include "gfxPrefs.h"
 #include "gfxUtils.h"
 #include "GLContext.h"
 #include "ImageRegion.h"
@@ -16,8 +17,10 @@
 #include "mozilla/dom/HTMLVideoElement.h"
 #include "mozilla/dom/ImageBitmap.h"
 #include "mozilla/gfx/PathHelpers.h"
+#include "mozilla/layers/PersistentBufferProvider.h"
 #include "nsContentUtils.h"
 #include "nsICanvasRenderingContextInternal.h"
+#include "nsIMemoryReporter.h"
 #include "nsPrintfCString.h"
 #include "nsStyleUtil.h"
 
@@ -32,11 +35,14 @@ using mozilla::gfx::AntialiasMode;
 using mozilla::gfx::ArcToBezier;
 using mozilla::gfx::CapStyle;
 using mozilla::gfx::Color;
+using mozilla::gfx::CriticalLog;
 using mozilla::gfx::DrawOptions;
 using mozilla::gfx::DrawSurfaceOptions;
 using mozilla::gfx::ExtendMode;
+using mozilla::gfx::Factory;
 using mozilla::gfx::FillRule;
 using mozilla::gfx::IntPoint;
+using mozilla::gfx::IntRect;
 using mozilla::gfx::JoinStyle;
 using mozilla::gfx::LogReason;
 using mozilla::gfx::IntSize;
@@ -52,9 +58,35 @@ using mozilla::gfx::ToDeviceColor;
 using mozilla::image::DrawResult;
 using mozilla::image::ImageRegion;
 using mozilla::layers::AutoLockImage;
+using mozilla::layers::PersistentBufferProvider;
+using mozilla::layers::PersistentBufferProviderBasic;
 
 namespace mozilla {
 namespace dom{
+
+// This is KIND_OTHER because it's not always clear where in memory the pixels
+// of a canvas are stored.  Furthermore, this memory will be tracked by the
+// underlying surface implementations.  See bug 655638 for details.
+class Canvas2dPixelsReporter final : public nsIMemoryReporter
+{
+  ~Canvas2dPixelsReporter() {}
+public:
+  NS_DECL_ISUPPORTS
+
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool aAnonymize) override
+  {
+    MOZ_COLLECT_REPORT(
+      "canvas-2d-pixels", KIND_OTHER, UNITS_BYTES,
+      BasicRenderingContext2D::sCanvasAzureMemoryUsed,
+      "Memory used by 2D canvases. Each canvas requires "
+      "(width * height * 4) bytes.");
+
+    return NS_OK;
+  }
+};
+
+NS_IMPL_ISUPPORTS(Canvas2dPixelsReporter, nsIMemoryReporter)
 
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(CanvasGradient, AddRef)
 NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(CanvasGradient, Release)
@@ -66,6 +98,20 @@ NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(CanvasPattern, Release)
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(CanvasPattern, mContext)
 
+NS_IMPL_ISUPPORTS(CanvasShutdownObserver, nsIObserver)
+
+NS_IMETHODIMP
+CanvasShutdownObserver::Observe(nsISupports *aSubject,
+                                const char *aTopic,
+                                const char16_t *aData)
+{
+  if (mCanvas && strcmp(aTopic, NS_XPCOM_SHUTDOWN_OBSERVER_ID) == 0) {
+    mCanvas->OnShutdown();
+    nsContentUtils::UnregisterShutdownObserver(this);
+  }
+
+  return NS_OK;
+}
 
 // Cap sigma to avoid overly large temp surfaces.
 const mozilla::gfx::Float SIGMA_MAX = 100;
@@ -75,6 +121,387 @@ const size_t MAX_STYLE_STACK_SIZE = 1024;
 /**
  ** BasicRenderingContext2D impl
  **/
+
+// Initialize our static variables.
+uint32_t BasicRenderingContext2D::sNumLivingContexts = 0;
+DrawTarget* BasicRenderingContext2D::sErrorTarget = nullptr;
+int64_t BasicRenderingContext2D::sCanvasAzureMemoryUsed = 0;
+
+BasicRenderingContext2D::BasicRenderingContext2D(layers::LayersBackend aCompositorBackend)
+  : mRenderingMode(RenderingMode::OpenGLBackendMode)
+  , mCompositorBackend(aCompositorBackend)
+    // these are the default values from the Canvas spec
+  , mWidth(0), mHeight(0)
+  , mPathTransformWillUpdate(false)
+  , mIsSkiaGL(false)
+  , mHasPendingStableStateCallback(false)
+{
+  sNumLivingContexts++;
+
+  mShutdownObserver = new CanvasShutdownObserver(this);
+  nsContentUtils::RegisterShutdownObserver(mShutdownObserver);
+}
+
+BasicRenderingContext2D::~BasicRenderingContext2D()
+{
+  RemoveShutdownObserver();
+  Reset();
+
+  sNumLivingContexts--;
+  if (!sNumLivingContexts) {
+    NS_IF_RELEASE(sErrorTarget);
+  }
+}
+
+nsresult
+BasicRenderingContext2D::Reset()
+{
+  // only do this for non-docshell created contexts,
+  // since those are the ones that we created a surface for
+  if (mTarget && IsTargetValid()) {
+    sCanvasAzureMemoryUsed -= mWidth * mHeight * 4;
+  }
+
+  bool forceReset = true;
+  ReturnTarget(forceReset);
+  mTarget = nullptr;
+  mBufferProvider = nullptr;
+
+  return NS_OK;
+}
+
+void
+BasicRenderingContext2D::RemoveShutdownObserver()
+{
+  if (mShutdownObserver) {
+    nsContentUtils::UnregisterShutdownObserver(mShutdownObserver);
+    mShutdownObserver = nullptr;
+  }
+}
+
+void
+BasicRenderingContext2D::OnShutdown()
+{
+  mShutdownObserver = nullptr;
+
+  RefPtr<PersistentBufferProvider> provider = mBufferProvider;
+
+  Reset();
+
+  if (provider) {
+    provider->OnShutdown();
+  }
+}
+
+BasicRenderingContext2D::RenderingMode
+BasicRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
+                                      RenderingMode aRenderingMode)
+{
+  if (AlreadyShutDown()) {
+    gfxCriticalError() << "Attempt to render into a Canvas2d after shutdown.";
+    SetErrorState();
+    return aRenderingMode;
+  }
+
+  // This would make no sense, so make sure we don't get ourselves in a mess
+  MOZ_ASSERT(mRenderingMode != RenderingMode::DefaultBackendMode);
+
+  RenderingMode mode = (aRenderingMode == RenderingMode::DefaultBackendMode) ? mRenderingMode : aRenderingMode;
+
+  if (mTarget && mode == mRenderingMode) {
+    return mRenderingMode;
+  }
+
+  // Check that the dimensions are sane
+  if (mWidth > gfxPrefs::MaxCanvasSize() ||
+      mHeight > gfxPrefs::MaxCanvasSize() ||
+      mWidth < 0 || mHeight < 0) {
+
+    SetErrorState();
+    return aRenderingMode;
+  }
+
+  // If the next drawing command covers the entire canvas, we can skip copying
+  // from the previous frame and/or clearing the canvas.
+  gfx::Rect canvasRect(0, 0, mWidth, mHeight);
+  bool canDiscardContent = aCoveredRect &&
+    CurrentState().transform.TransformBounds(*aCoveredRect).Contains(canvasRect);
+
+  // If a clip is active we don't know for sure that the next drawing command
+  // will really cover the entire canvas.
+  for (const auto& style : mStyleStack) {
+    if (!canDiscardContent) {
+      break;
+    }
+    for (const auto& clipOrTransform : style.clipsAndTransforms) {
+      if (clipOrTransform.IsClip()) {
+        canDiscardContent = false;
+        break;
+      }
+    }
+  }
+
+  ScheduleStableStateCallback();
+
+  IntRect persistedRect = canDiscardContent ? IntRect()
+                                            : IntRect(0, 0, mWidth, mHeight);
+
+  if (mBufferProvider && mode == mRenderingMode) {
+    mTarget = mBufferProvider->BorrowDrawTarget(persistedRect);
+
+    if (mTarget && !mBufferProvider->PreservesDrawingState()) {
+      RestoreClipsAndTransformToTarget();
+    }
+
+    if (mTarget) {
+      return mode;
+    }
+  }
+
+  RefPtr<DrawTarget> newTarget;
+  RefPtr<PersistentBufferProvider> newProvider;
+
+  if (mode == RenderingMode::OpenGLBackendMode &&
+      !TrySkiaGLTarget(newTarget, newProvider)) {
+    // Fall back to software.
+    mode = RenderingMode::SoftwareBackendMode;
+  }
+
+  if (mode == RenderingMode::SoftwareBackendMode &&
+      !TrySharedTarget(newTarget, newProvider) &&
+      !TryBasicTarget(newTarget, newProvider)) {
+
+    gfxCriticalError(
+      CriticalLog::DefaultOptions(Factory::ReasonableSurfaceSize(GetSize()))
+    ) << "Failed borrow shared and basic targets.";
+
+    SetErrorState();
+    return mode;
+  }
+
+
+  MOZ_ASSERT(newTarget);
+  MOZ_ASSERT(newProvider);
+
+  bool needsClear = !canDiscardContent;
+  if (newTarget->GetBackendType() == gfx::BackendType::SKIA) {
+    // Skia expects the unused X channel to contains 0xFF even for opaque operations
+    // so we can't skip clearing in that case, even if we are going to cover the
+    // entire canvas in the next drawing operation.
+    newTarget->ClearRect(canvasRect);
+    needsClear = false;
+  }
+
+  // Try to copy data from the previous buffer provider if there is one.
+  if (!canDiscardContent && mBufferProvider && CopyBufferProvider(*mBufferProvider, *newTarget, persistedRect)) {
+    needsClear = false;
+  }
+
+  if (needsClear) {
+    newTarget->ClearRect(canvasRect);
+  }
+
+  mTarget = newTarget.forget();
+  mBufferProvider = newProvider.forget();
+
+  RegisterAllocation();
+
+  RestoreClipsAndTransformToTarget();
+
+  // Force a full layer transaction since we didn't have a layer before
+  // and now we might need one.
+  if (GetCanvasElement()) {
+    GetCanvasElement()->InvalidateCanvas();
+  }
+  // Calling Redraw() tells our invalidation machinery that the entire
+  // canvas is already invalid, which can speed up future drawing.
+  Redraw();
+
+  return mode;
+}
+
+void
+BasicRenderingContext2D::RegisterAllocation()
+{
+  // XXX - It would make more sense to track the allocation in
+  // PeristentBufferProvider, rather than here.
+  static bool registered = false;
+  // FIXME: Disable the reporter for now, see bug 1241865
+  if (!registered && false) {
+    registered = true;
+    RegisterStrongMemoryReporter(new Canvas2dPixelsReporter());
+  }
+
+  sCanvasAzureMemoryUsed += mWidth * mHeight * 4;
+  JSContext* context = nsContentUtils::GetCurrentJSContext();
+  if (context) {
+    JS_updateMallocCounter(context, mWidth * mHeight * 4);
+  }
+
+  JSObject* wrapper = GetWrapperPreserveColor();
+  if (wrapper) {
+    CycleCollectedJSContext::Get()->
+      AddZoneWaitingForGC(JS::GetObjectZone(wrapper));
+  }
+}
+
+bool
+BasicRenderingContext2D::TryBasicTarget(RefPtr<gfx::DrawTarget>& aOutDT,
+                                        RefPtr<layers::PersistentBufferProvider>& aOutProvider)
+{
+  aOutDT = gfxPlatform::GetPlatform()->CreateOffscreenCanvasDrawTarget(GetSize(),
+                                                                       GetSurfaceFormat());
+  if (!aOutDT) {
+    return false;
+  }
+
+  aOutProvider = new PersistentBufferProviderBasic(aOutDT);
+  return true;
+}
+
+bool
+BasicRenderingContext2D::CopyBufferProvider(PersistentBufferProvider& aOld,
+                                            DrawTarget& aTarget,
+                                            IntRect aCopyRect)
+{
+  // Borrowing the snapshot must be done after ReturnTarget.
+  RefPtr<SourceSurface> snapshot = aOld.BorrowSnapshot();
+
+  if (!snapshot) {
+    return false;
+  }
+
+  aTarget.CopySurface(snapshot, aCopyRect, IntPoint());
+  aOld.ReturnSnapshot(snapshot.forget());
+  return true;
+}
+
+void
+BasicRenderingContext2D::RestoreClipsAndTransformToTarget()
+{
+  // Restore clips and transform.
+  mTarget->SetTransform(Matrix());
+
+  if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
+    // Cairo doesn't play well with huge clips. When given a very big clip it
+    // will try to allocate big mask surface without taking the target
+    // size into account which can cause OOM. See bug 1034593.
+    // This limits the clip extents to the size of the canvas.
+    // A fix in Cairo would probably be preferable, but requires somewhat
+    // invasive changes.
+    mTarget->PushClipRect(gfx::Rect(0, 0, mWidth, mHeight));
+  }
+
+  for (const auto& style : mStyleStack) {
+    for (const auto& clipOrTransform : style.clipsAndTransforms) {
+      if (clipOrTransform.IsClip()) {
+        mTarget->PushClip(clipOrTransform.clip);
+      } else {
+        mTarget->SetTransform(clipOrTransform.transform);
+      }
+    }
+  }
+}
+
+void
+BasicRenderingContext2D::ReturnTarget(bool aForceReset)
+{
+  if (mTarget && mBufferProvider && mTarget != sErrorTarget) {
+    CurrentState().transform = mTarget->GetTransform();
+    if (aForceReset || !mBufferProvider->PreservesDrawingState()) {
+      for (const auto& style : mStyleStack) {
+        for (const auto& clipOrTransform : style.clipsAndTransforms) {
+          if (clipOrTransform.IsClip()) {
+            mTarget->PopClip();
+          }
+        }
+      }
+
+      if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
+        // With the cairo backend we pushed an extra clip rect which we have to
+        // balance out here. See the comment in RestoreClipsAndTransformToTarget.
+        mTarget->PopClip();
+      }
+
+      mTarget->SetTransform(Matrix());
+    }
+
+    mBufferProvider->ReturnDrawTarget(mTarget.forget());
+  }
+}
+
+void
+BasicRenderingContext2D::ScheduleStableStateCallback()
+{
+  if (mHasPendingStableStateCallback) {
+    return;
+  }
+  mHasPendingStableStateCallback = true;
+
+  nsContentUtils::RunInStableState(
+    NewRunnableMethod(this, &BasicRenderingContext2D::OnStableState)
+  );
+}
+
+void
+BasicRenderingContext2D::OnStableState()
+{
+  if (!mHasPendingStableStateCallback) {
+    return;
+  }
+
+  ReturnTarget();
+
+  mHasPendingStableStateCallback = false;
+}
+
+void
+BasicRenderingContext2D::SetErrorState()
+{
+  EnsureErrorTarget();
+
+  if (mTarget && mTarget != sErrorTarget) {
+    sCanvasAzureMemoryUsed -= mWidth * mHeight * 4;
+  }
+
+  mTarget = sErrorTarget;
+  mBufferProvider = nullptr;
+
+  // clear transforms, clips, etc.
+  SetInitialState();
+}
+
+void
+BasicRenderingContext2D::SetInitialState()
+{
+  // Set up the initial canvas defaults
+  mPathBuilder = nullptr;
+  mPath = nullptr;
+  mDSPathBuilder = nullptr;
+
+  mStyleStack.Clear();
+  ContextState *state = mStyleStack.AppendElement();
+  state->globalAlpha = 1.0;
+
+  state->colorStyles[Style::FILL] = NS_RGB(0,0,0);
+  state->colorStyles[Style::STROKE] = NS_RGB(0,0,0);
+  state->shadowColor = NS_RGBA(0,0,0,0);
+}
+
+void
+BasicRenderingContext2D::EnsureErrorTarget()
+{
+  if (sErrorTarget) {
+    return;
+  }
+
+  RefPtr<DrawTarget> errorTarget = gfxPlatform::GetPlatform()->CreateOffscreenCanvasDrawTarget(IntSize(1, 1), SurfaceFormat::B8G8R8A8);
+  MOZ_ASSERT(errorTarget, "Failed to allocate the error target!");
+
+  sErrorTarget = errorTarget;
+  NS_ADDREF(sErrorTarget);
+}
+
 bool
 BasicRenderingContext2D::PatternIsOpaque(BasicRenderingContext2D::Style aStyle) const
 {
@@ -97,7 +524,6 @@ BasicRenderingContext2D::PatternIsOpaque(BasicRenderingContext2D::Style aStyle) 
 
   return false;
 }
-
 
 void
 BasicRenderingContext2D::GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
