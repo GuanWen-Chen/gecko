@@ -64,6 +64,10 @@ using mozilla::layers::PersistentBufferProviderBasic;
 namespace mozilla {
 namespace dom{
 
+typedef BasicRenderingContext2D::ContextState ContextState;
+
+NS_IMPL_ISUPPORTS(ContextState, nsISupports)
+
 // This is KIND_OTHER because it's not always clear where in memory the pixels
 // of a canvas are stored.  Furthermore, this memory will be tracked by the
 // underlying surface implementations.  See bug 655638 for details.
@@ -225,7 +229,7 @@ BasicRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
   // from the previous frame and/or clearing the canvas.
   gfx::Rect canvasRect(0, 0, mWidth, mHeight);
   bool canDiscardContent = aCoveredRect &&
-    CurrentState().transform.TransformBounds(*aCoveredRect).Contains(canvasRect);
+    CurrentState()->transform.TransformBounds(*aCoveredRect).Contains(canvasRect);
 
   // If a clip is active we don't know for sure that the next drawing command
   // will really cover the entire canvas.
@@ -233,7 +237,7 @@ BasicRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
     if (!canDiscardContent) {
       break;
     }
-    for (const auto& clipOrTransform : style.clipsAndTransforms) {
+    for (const auto& clipOrTransform : style->clipsAndTransforms) {
       if (clipOrTransform.IsClip()) {
         canDiscardContent = false;
         break;
@@ -393,7 +397,7 @@ BasicRenderingContext2D::RestoreClipsAndTransformToTarget()
   }
 
   for (const auto& style : mStyleStack) {
-    for (const auto& clipOrTransform : style.clipsAndTransforms) {
+    for (const auto& clipOrTransform : style->clipsAndTransforms) {
       if (clipOrTransform.IsClip()) {
         mTarget->PushClip(clipOrTransform.clip);
       } else {
@@ -407,10 +411,10 @@ void
 BasicRenderingContext2D::ReturnTarget(bool aForceReset)
 {
   if (mTarget && mBufferProvider && mTarget != sErrorTarget) {
-    CurrentState().transform = mTarget->GetTransform();
+    CurrentState()->transform = mTarget->GetTransform();
     if (aForceReset || !mBufferProvider->PreservesDrawingState()) {
       for (const auto& style : mStyleStack) {
-        for (const auto& clipOrTransform : style.clipsAndTransforms) {
+        for (const auto& clipOrTransform : style->clipsAndTransforms) {
           if (clipOrTransform.IsClip()) {
             mTarget->PopClip();
           }
@@ -480,12 +484,15 @@ BasicRenderingContext2D::SetInitialState()
   mDSPathBuilder = nullptr;
 
   mStyleStack.Clear();
-  ContextState *state = mStyleStack.AppendElement();
-  state->globalAlpha = 1.0;
 
+  RefPtr<ContextState> state = CreateContextState();
+  state->globalAlpha = 1.0;
   state->colorStyles[Style::FILL] = NS_RGB(0,0,0);
   state->colorStyles[Style::STROKE] = NS_RGB(0,0,0);
   state->shadowColor = NS_RGBA(0,0,0,0);
+
+  mStyleStack.AppendElement(state);
+
 }
 
 void
@@ -505,21 +512,21 @@ BasicRenderingContext2D::EnsureErrorTarget()
 bool
 BasicRenderingContext2D::PatternIsOpaque(BasicRenderingContext2D::Style aStyle) const
 {
-  const ContextState& state = CurrentState();
-  if (state.globalAlpha < 1.0) {
+  const ContextState* state = CurrentState();
+  if (state->globalAlpha < 1.0) {
     return false;
   }
 
-  if (state.patternStyles[aStyle] && state.patternStyles[aStyle]->mSurface) {
-    return IsOpaqueFormat(state.patternStyles[aStyle]->mSurface->GetFormat());
+  if (state->patternStyles[aStyle] && state->patternStyles[aStyle]->mSurface) {
+    return IsOpaqueFormat(state->patternStyles[aStyle]->mSurface->GetFormat());
   }
 
   // TODO: for gradient patterns we could check that all stops are opaque
   // colors.
 
-  if (!state.gradientStyles[aStyle]) {
+  if (!state->gradientStyles[aStyle]) {
     // it's a color pattern.
-    return Color::FromABGR(state.colorStyles[aStyle]).a >= 1.0;
+    return Color::FromABGR(state->colorStyles[aStyle]).a >= 1.0;
   }
 
   return false;
@@ -529,13 +536,13 @@ void
 BasicRenderingContext2D::GetStyleAsUnion(OwningStringOrCanvasGradientOrCanvasPattern& aValue,
                                          Style aWhichStyle)
 {
-  const ContextState &state = CurrentState();
-  if (state.patternStyles[aWhichStyle]) {
-    aValue.SetAsCanvasPattern() = state.patternStyles[aWhichStyle];
-  } else if (state.gradientStyles[aWhichStyle]) {
-    aValue.SetAsCanvasGradient() = state.gradientStyles[aWhichStyle];
+  const ContextState* state = CurrentState();
+  if (state->patternStyles[aWhichStyle]) {
+    aValue.SetAsCanvasPattern() = state->patternStyles[aWhichStyle];
+  } else if (state->gradientStyles[aWhichStyle]) {
+    aValue.SetAsCanvasGradient() = state->gradientStyles[aWhichStyle];
   } else {
-    StyleColorToString(state.colorStyles[aWhichStyle], aValue.SetAsString());
+    StyleColorToString(state->colorStyles[aWhichStyle], aValue.SetAsString());
   }
 }
 
@@ -550,7 +557,7 @@ BasicRenderingContext2D::SetStyleFromString(const nsAString& aStr,
     return;
   }
 
-  CurrentState().SetColorStyle(aWhichStyle, color);
+  CurrentState()->SetColorStyle(aWhichStyle, color);
 }
 
 // static
@@ -584,9 +591,9 @@ void
 BasicRenderingContext2D::Save()
 {
   EnsureTarget();
-  mStyleStack[mStyleStack.Length() - 1].transform = mTarget->GetTransform();
-  mStyleStack.SetCapacity(mStyleStack.Length() + 1);
-  mStyleStack.AppendElement(CurrentState());
+  mStyleStack[mStyleStack.Length() - 1]->transform = mTarget->GetTransform();
+  RefPtr<ContextState> state = CreateContextState(CurrentState());
+  mStyleStack.AppendElement(state);
 
   if (mStyleStack.Length() > MAX_STYLE_STACK_SIZE) {
     // This is not fast, but is better than OOMing and shouldn't be hit by
@@ -603,7 +610,7 @@ BasicRenderingContext2D::Restore()
 
   TransformWillUpdate();
 
-  for (const auto& clipOrTransform : CurrentState().clipsAndTransforms) {
+  for (const auto& clipOrTransform : CurrentState()->clipsAndTransforms) {
     if (clipOrTransform.IsClip()) {
       mTarget->PopClip();
     }
@@ -611,7 +618,7 @@ BasicRenderingContext2D::Restore()
 
   mStyleStack.RemoveElementAt(mStyleStack.Length() - 1);
 
-  mTarget->SetTransform(CurrentState().transform);
+  mTarget->SetTransform(CurrentState()->transform);
 }
 
 //
@@ -702,7 +709,7 @@ BasicRenderingContext2D::SetTransformInternal(const Matrix& aTransform)
   }
 
   // Save the transform in the clip stack to be able to replay clips properly.
-  auto& clipsAndTransforms = CurrentState().clipsAndTransforms;
+  auto& clipsAndTransforms = CurrentState()->clipsAndTransforms;
   if (clipsAndTransforms.IsEmpty() || clipsAndTransforms.LastElement().IsClip()) {
     clipsAndTransforms.AppendElement(ClipState(aTransform));
   } else {
@@ -763,14 +770,14 @@ BasicRenderingContext2D::SetGlobalCompositeOperation(const nsAString& aOp,
   else return;
 
 #undef CANVAS_OP_TO_GFX_OP
-  CurrentState().op = comp_op;
+  CurrentState()->op = comp_op;
 }
 
 void
 BasicRenderingContext2D::GetGlobalCompositeOperation(nsAString& aOp,
                                                      ErrorResult& aError)
 {
-  CompositionOp comp_op = CurrentState().op;
+  CompositionOp comp_op = CurrentState()->op;
 
 #define CANVAS_OP_TO_GFX_OP(cvsop, op2d) \
   if (comp_op == CompositionOp::OP_##op2d) \
@@ -986,7 +993,7 @@ BasicRenderingContext2D::SetShadowColor(const nsAString& aShadowColor)
     return;
   }
 
-  CurrentState().shadowColor = color;
+  CurrentState()->shadowColor = color;
 }
 
 //
@@ -1047,21 +1054,21 @@ void
 BasicRenderingContext2D::FillRect(double aX, double aY, double aW,
                                   double aH)
 {
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentState();
 
   if (!ValidateRect(aX, aY, aW, aH, true)) {
     return;
   }
 
-  if (state.patternStyles[Style::FILL]) {
+  if (state->patternStyles[Style::FILL]) {
     CanvasPattern::RepeatMode repeat =
-      state.patternStyles[Style::FILL]->mRepeat;
+      state->patternStyles[Style::FILL]->mRepeat;
     // In the FillRect case repeat modes are easy to deal with.
     bool limitx = repeat == CanvasPattern::RepeatMode::NOREPEAT || repeat == CanvasPattern::RepeatMode::REPEATY;
     bool limity = repeat == CanvasPattern::RepeatMode::NOREPEAT || repeat == CanvasPattern::RepeatMode::REPEATX;
 
     IntSize patternSize =
-      state.patternStyles[Style::FILL]->mSurface->GetSize();
+      state->patternStyles[Style::FILL]->mSurface->GetSize();
 
     // We always need to execute painting for non-over operators, even if
     // we end up with w/h = 0.
@@ -1111,13 +1118,13 @@ BasicRenderingContext2D::FillRect(double aX, double aY, double aW,
     bounds = mTarget->GetTransform().TransformBounds(fillRect);
   }
 
-  AntialiasMode antialiasMode = CurrentState().imageSmoothingEnabled ?
+  AntialiasMode antialiasMode = CurrentState()->imageSmoothingEnabled ?
                                 AntialiasMode::DEFAULT : AntialiasMode::NONE;
 
   AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
     FillRect(gfx::Rect(aX, aY, aW, aH),
              CanvasGeneralPattern().ForStyle(this, Style::FILL, mTarget),
-             DrawOptions(state.globalAlpha, op, antialiasMode));
+             DrawOptions(state->globalAlpha, op, antialiasMode));
 
   RedrawUser(gfxRect(aX, aY, aW, aH));
 }
@@ -1126,7 +1133,7 @@ void
 BasicRenderingContext2D::StrokeRect(double aX, double aY, double aW,
                                     double aH)
 {
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentState();
 
   gfx::Rect bounds;
 
@@ -1144,54 +1151,54 @@ BasicRenderingContext2D::StrokeRect(double aX, double aY, double aW,
   }
 
   if (NeedToCalculateBounds()) {
-    bounds = gfx::Rect(aX - state.lineWidth / 2.0f, aY - state.lineWidth / 2.0f,
-                       aW + state.lineWidth, aH + state.lineWidth);
+    bounds = gfx::Rect(aX - state->lineWidth / 2.0f, aY - state->lineWidth / 2.0f,
+                       aW + state->lineWidth, aH + state->lineWidth);
     bounds = mTarget->GetTransform().TransformBounds(bounds);
   }
 
   if (!aH) {
     CapStyle cap = CapStyle::BUTT;
-    if (state.lineJoin == JoinStyle::ROUND) {
+    if (state->lineJoin == JoinStyle::ROUND) {
       cap = CapStyle::ROUND;
     }
     AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
       StrokeLine(Point(aX, aY), Point(aX + aW, aY),
                   CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
-                  StrokeOptions(state.lineWidth, state.lineJoin,
-                                cap, state.miterLimit,
-                                state.dash.Length(),
-                                state.dash.Elements(),
-                                state.dashOffset),
-                  DrawOptions(state.globalAlpha, UsedOperation()));
+                  StrokeOptions(state->lineWidth, state->lineJoin,
+                                cap, state->miterLimit,
+                                state->dash.Length(),
+                                state->dash.Elements(),
+                                state->dashOffset),
+                  DrawOptions(state->globalAlpha, UsedOperation()));
     return;
   }
 
   if (!aW) {
     CapStyle cap = CapStyle::BUTT;
-    if (state.lineJoin == JoinStyle::ROUND) {
+    if (state->lineJoin == JoinStyle::ROUND) {
       cap = CapStyle::ROUND;
     }
     AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
       StrokeLine(Point(aX, aY), Point(aX, aY + aH),
                   CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
-                  StrokeOptions(state.lineWidth, state.lineJoin,
-                                cap, state.miterLimit,
-                                state.dash.Length(),
-                                state.dash.Elements(),
-                                state.dashOffset),
-                  DrawOptions(state.globalAlpha, UsedOperation()));
+                  StrokeOptions(state->lineWidth, state->lineJoin,
+                                cap, state->miterLimit,
+                                state->dash.Length(),
+                                state->dash.Elements(),
+                                state->dashOffset),
+                  DrawOptions(state->globalAlpha, UsedOperation()));
     return;
   }
 
   AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
     StrokeRect(gfx::Rect(aX, aY, aW, aH),
                CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
-               StrokeOptions(state.lineWidth, state.lineJoin,
-                             state.lineCap, state.miterLimit,
-                             state.dash.Length(),
-                             state.dash.Elements(),
-                             state.dashOffset),
-               DrawOptions(state.globalAlpha, UsedOperation()));
+               StrokeOptions(state->lineWidth, state->lineJoin,
+                             state->lineCap, state->miterLimit,
+                             state->dash.Length(),
+                             state->dash.Elements(),
+                             state->dashOffset),
+               DrawOptions(state->globalAlpha, UsedOperation()));
 
   Redraw();
 }
@@ -1226,7 +1233,7 @@ BasicRenderingContext2D::Fill(const CanvasWindingRule& aWinding)
 
   AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
     Fill(mPath, CanvasGeneralPattern().ForStyle(this, Style::FILL, mTarget),
-         DrawOptions(CurrentState().globalAlpha, UsedOperation()));
+         DrawOptions(CurrentState()->globalAlpha, UsedOperation()));
 
   Redraw();
 }
@@ -1249,7 +1256,7 @@ void BasicRenderingContext2D::Fill(const CanvasPath& aPath, const CanvasWindingR
 
   AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
     Fill(gfxpath, CanvasGeneralPattern().ForStyle(this, Style::FILL, mTarget),
-         DrawOptions(CurrentState().globalAlpha, UsedOperation()));
+         DrawOptions(CurrentState()->globalAlpha, UsedOperation()));
 
   Redraw();
 }
@@ -1263,12 +1270,12 @@ BasicRenderingContext2D::Stroke()
     return;
   }
 
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentState();
 
-  StrokeOptions strokeOptions(state.lineWidth, state.lineJoin,
-                              state.lineCap, state.miterLimit,
-                              state.dash.Length(), state.dash.Elements(),
-                              state.dashOffset);
+  StrokeOptions strokeOptions(state->lineWidth, state->lineJoin,
+                              state->lineCap, state->miterLimit,
+                              state->dash.Length(), state->dash.Elements(),
+                              state->dashOffset);
 
   gfx::Rect bounds;
   if (NeedToCalculateBounds()) {
@@ -1278,7 +1285,7 @@ BasicRenderingContext2D::Stroke()
 
   AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
     Stroke(mPath, CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
-           strokeOptions, DrawOptions(state.globalAlpha, UsedOperation()));
+           strokeOptions, DrawOptions(state->globalAlpha, UsedOperation()));
 
   Redraw();
 }
@@ -1294,12 +1301,12 @@ BasicRenderingContext2D::Stroke(const CanvasPath& aPath)
     return;
   }
 
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentState();
 
-  StrokeOptions strokeOptions(state.lineWidth, state.lineJoin,
-                              state.lineCap, state.miterLimit,
-                              state.dash.Length(), state.dash.Elements(),
-                              state.dashOffset);
+  StrokeOptions strokeOptions(state->lineWidth, state->lineJoin,
+                              state->lineCap, state->miterLimit,
+                              state->dash.Length(), state->dash.Elements(),
+                              state->dashOffset);
 
   gfx::Rect bounds;
   if (NeedToCalculateBounds()) {
@@ -1309,7 +1316,7 @@ BasicRenderingContext2D::Stroke(const CanvasPath& aPath)
 
   AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
     Stroke(gfxpath, CanvasGeneralPattern().ForStyle(this, Style::STROKE, mTarget),
-           strokeOptions, DrawOptions(state.globalAlpha, UsedOperation()));
+           strokeOptions, DrawOptions(state->globalAlpha, UsedOperation()));
 
   Redraw();
 }
@@ -1324,7 +1331,7 @@ BasicRenderingContext2D::Clip(const CanvasWindingRule& aWinding)
   }
 
   mTarget->PushClip(mPath);
-  CurrentState().clipsAndTransforms.AppendElement(ClipState(mPath));
+  CurrentState()->clipsAndTransforms.AppendElement(ClipState(mPath));
 }
 
 void
@@ -1339,7 +1346,7 @@ BasicRenderingContext2D::Clip(const CanvasPath& aPath, const CanvasWindingRule& 
   }
 
   mTarget->PushClip(gfxpath);
-  CurrentState().clipsAndTransforms.AppendElement(ClipState(gfxpath));
+  CurrentState()->clipsAndTransforms.AppendElement(ClipState(gfxpath));
 }
 
 bool
@@ -1385,15 +1392,15 @@ BasicRenderingContext2D::IsPointInStroke(double aX, double aY)
     return false;
   }
 
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentState();
 
-  StrokeOptions strokeOptions(state.lineWidth,
-                              state.lineJoin,
-                              state.lineCap,
-                              state.miterLimit,
-                              state.dash.Length(),
-                              state.dash.Elements(),
-                              state.dashOffset);
+  StrokeOptions strokeOptions(state->lineWidth,
+                              state->lineJoin,
+                              state->lineCap,
+                              state->miterLimit,
+                              state->dash.Length(),
+                              state->dash.Elements(),
+                              state->dashOffset);
 
   if (mPathTransformWillUpdate) {
     return mPath->StrokeContainsPoint(strokeOptions, Point(aX, aY), mPathToDS);
@@ -1410,15 +1417,15 @@ bool BasicRenderingContext2D::IsPointInStroke(const CanvasPath& aPath, double aX
   EnsureTarget();
   RefPtr<gfx::Path> tempPath = aPath.GetPath(CanvasWindingRule::Nonzero, mTarget);
 
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentState();
 
-  StrokeOptions strokeOptions(state.lineWidth,
-                              state.lineJoin,
-                              state.lineCap,
-                              state.miterLimit,
-                              state.dash.Length(),
-                              state.dash.Elements(),
-                              state.dashOffset);
+  StrokeOptions strokeOptions(state->lineWidth,
+                              state->lineJoin,
+                              state->lineCap,
+                              state->miterLimit,
+                              state->dash.Length(),
+                              state->dash.Elements(),
+                              state->dashOffset);
 
   return tempPath->StrokeContainsPoint(strokeOptions, Point(aX, aY), mTarget->GetTransform());
 }
@@ -1574,7 +1581,7 @@ BasicRenderingContext2D::TransformWillUpdate()
 void
 BasicRenderingContext2D::EnsureUserSpacePath(const CanvasWindingRule& aWinding)
 {
-  FillRule fillRule = CurrentState().fillRule;
+  FillRule fillRule = CurrentState()->fillRule;
   if (aWinding == CanvasWindingRule::Evenodd)
     fillRule = FillRule::FILL_EVEN_ODD;
 
@@ -1632,7 +1639,7 @@ BasicRenderingContext2D::EnsureWritablePath()
     return;
   }
 
-  FillRule fillRule = CurrentState().fillRule;
+  FillRule fillRule = CurrentState()->fillRule;
 
   if (mPathBuilder) {
     if (mPathTransformWillUpdate) {
@@ -1678,13 +1685,13 @@ BasicRenderingContext2D::SetLineCap(const nsAString& aLinecapStyle)
     // XXX ERRMSG we need to report an error to developers here! (bug 329026)
     return;
   }
-  CurrentState().lineCap = cap;
+  CurrentState()->lineCap = cap;
 }
 
 void
 BasicRenderingContext2D::GetLineCap(nsAString& aLinecapStyle)
 {
-  switch (CurrentState().lineCap) {
+  switch (CurrentState()->lineCap) {
   case CapStyle::BUTT:
     aLinecapStyle.AssignLiteral("butt");
     break;
@@ -1712,13 +1719,13 @@ BasicRenderingContext2D::SetLineJoin(const nsAString& aLinejoinStyle)
     // XXX ERRMSG we need to report an error to developers here! (bug 329026)
     return;
   }
-  CurrentState().lineJoin = j;
+  CurrentState()->lineJoin = j;
 }
 
 void
 BasicRenderingContext2D::GetLineJoin(nsAString& aLinejoinStyle, ErrorResult& aError)
 {
-  switch (CurrentState().lineJoin) {
+  switch (CurrentState()->lineJoin) {
   case JoinStyle::ROUND:
     aLinejoinStyle.AssignLiteral("round");
     break;
@@ -1760,12 +1767,12 @@ BasicRenderingContext2D::SetLineDash(const Sequence<double>& aSegments,
     }
   }
 
-  CurrentState().dash = Move(dash);
+  CurrentState()->dash = Move(dash);
 }
 
 void
 BasicRenderingContext2D::GetLineDash(nsTArray<double>& aSegments) const {
-  const nsTArray<mozilla::gfx::Float>& dash = CurrentState().dash;
+  const nsTArray<mozilla::gfx::Float>& dash = CurrentState()->dash;
   aSegments.Clear();
 
   for (uint32_t x = 0; x < dash.Length(); x++) {
@@ -1775,12 +1782,12 @@ BasicRenderingContext2D::GetLineDash(nsTArray<double>& aSegments) const {
 
 void
 BasicRenderingContext2D::SetLineDashOffset(double aOffset) {
-  CurrentState().dashOffset = aOffset;
+  CurrentState()->dashOffset = aOffset;
 }
 
 double
 BasicRenderingContext2D::LineDashOffset() const {
-  return CurrentState().dashOffset;
+  return CurrentState()->dashOffset;
 }
 
 // Returns a surface that contains only the part needed to draw aSourceRect.
@@ -1865,7 +1872,7 @@ BasicRenderingContext2D::DrawDirectlyToCanvas(
   uint32_t modifiedFlags = aImage.mDrawingFlags | imgIContainer::FLAG_CLAMP;
 
   CSSIntSize sz(scaledImageSize.width, scaledImageSize.height); // XXX hmm is scaledImageSize really in CSS pixels?
-  SVGImageContext svgContext(sz, Nothing(), CurrentState().globalAlpha);
+  SVGImageContext svgContext(sz, Nothing(), CurrentState()->globalAlpha);
 
   auto result = aImage.mImgContainer->
     Draw(context, scaledImageSize,
@@ -2214,7 +2221,7 @@ BasicRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
   SamplingFilter samplingFilter;
   AntialiasMode antialiasMode;
 
-  if (CurrentState().imageSmoothingEnabled) {
+  if (CurrentState()->imageSmoothingEnabled) {
     samplingFilter = gfx::SamplingFilter::LINEAR;
     antialiasMode = AntialiasMode::DEFAULT;
   } else {
@@ -2254,7 +2261,7 @@ BasicRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
                   gfx::Rect(aDx, aDy, aDw, aDh),
                   sourceRect,
                   DrawSurfaceOptions(samplingFilter, SamplingBounds::UNBOUNDED),
-                  DrawOptions(CurrentState().globalAlpha, UsedOperation(), antialiasMode));
+                  DrawOptions(CurrentState()->globalAlpha, UsedOperation(), antialiasMode));
   } else {
     DrawDirectlyToCanvas(drawInfo, &bounds,
                          gfx::Rect(aDx, aDy, aDw, aDh),
@@ -2274,48 +2281,48 @@ CanvasGeneralPattern::ForStyle(BasicRenderingContext2D* aCtx,
   // not be executed.
   NS_ASSERTION(!mPattern.GetPattern(), "ForStyle() should only be called once on CanvasGeneralPattern!");
 
-  const BasicRenderingContext2D::ContextState &state = aCtx->CurrentState();
+  const BasicRenderingContext2D::ContextState* state = aCtx->CurrentState();
 
-  if (state.StyleIsColor(aStyle)) {
-    mPattern.InitColorPattern(ToDeviceColor(state.colorStyles[aStyle]));
-  } else if (state.gradientStyles[aStyle] &&
-             state.gradientStyles[aStyle]->GetType() == CanvasGradient::Type::LINEAR) {
+  if (state->StyleIsColor(aStyle)) {
+    mPattern.InitColorPattern(ToDeviceColor(state->colorStyles[aStyle]));
+  } else if (state->gradientStyles[aStyle] &&
+             state->gradientStyles[aStyle]->GetType() == CanvasGradient::Type::LINEAR) {
     CanvasLinearGradient *gradient =
-      static_cast<CanvasLinearGradient*>(state.gradientStyles[aStyle].get());
+      static_cast<CanvasLinearGradient*>(state->gradientStyles[aStyle].get());
 
     mPattern.InitLinearGradientPattern(gradient->mBegin, gradient->mEnd,
                                        gradient->GetGradientStopsForTarget(aRT));
-  } else if (state.gradientStyles[aStyle] &&
-             state.gradientStyles[aStyle]->GetType() == CanvasGradient::Type::RADIAL) {
+  } else if (state->gradientStyles[aStyle] &&
+             state->gradientStyles[aStyle]->GetType() == CanvasGradient::Type::RADIAL) {
     CanvasRadialGradient *gradient =
-      static_cast<CanvasRadialGradient*>(state.gradientStyles[aStyle].get());
+      static_cast<CanvasRadialGradient*>(state->gradientStyles[aStyle].get());
 
     mPattern.InitRadialGradientPattern(gradient->mCenter1, gradient->mCenter2,
                                        gradient->mRadius1, gradient->mRadius2,
                                        gradient->GetGradientStopsForTarget(aRT));
-  } else if (state.patternStyles[aStyle]) {
+  } else if (state->patternStyles[aStyle]) {
     if (aCtx->GetCanvasElement()) {
       CanvasUtils::DoDrawImageSecurityCheck(aCtx->GetCanvasElement(),
-                                            state.patternStyles[aStyle]->mPrincipal,
-                                            state.patternStyles[aStyle]->mForceWriteOnly,
-                                            state.patternStyles[aStyle]->mCORSUsed);
+                                            state->patternStyles[aStyle]->mPrincipal,
+                                            state->patternStyles[aStyle]->mForceWriteOnly,
+                                            state->patternStyles[aStyle]->mCORSUsed);
     }
     ExtendMode mode;
-    if (state.patternStyles[aStyle]->mRepeat == CanvasPattern::RepeatMode::NOREPEAT) {
+    if (state->patternStyles[aStyle]->mRepeat == CanvasPattern::RepeatMode::NOREPEAT) {
       mode = ExtendMode::CLAMP;
     } else {
       mode = ExtendMode::REPEAT;
     }
 
     SamplingFilter samplingFilter;
-    if (state.imageSmoothingEnabled) {
+    if (state->imageSmoothingEnabled) {
       samplingFilter = SamplingFilter::GOOD;
     } else {
       samplingFilter = SamplingFilter::POINT;
     }
 
-    mPattern.InitSurfacePattern(state.patternStyles[aStyle]->mSurface, mode,
-                                state.patternStyles[aStyle]->mTransform,
+    mPattern.InitSurfacePattern(state->patternStyles[aStyle]->mSurface, mode,
+                                state->patternStyles[aStyle]->mTransform,
                                 samplingFilter);
   }
 

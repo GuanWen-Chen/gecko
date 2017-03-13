@@ -5,7 +5,6 @@
 #ifndef BasicRenderingContext2D_h
 #define BasicRenderingContext2D_h
 
-#include "FilterSupport.h"
 #include "gfxTextRun.h"
 #include "Layers.h"
 #include "mozilla/dom/CanvasGradient.h"
@@ -18,7 +17,6 @@
 
 using mozilla::gfx::CompositionOp;
 using mozilla::gfx::DrawTarget;
-using mozilla::gfx::FilterDescription;
 using mozilla::gfx::Matrix;
 using mozilla::gfx::Pattern;
 using mozilla::gfx::GeneralPattern;
@@ -134,7 +132,7 @@ public:
   //
   double GlobalAlpha()
   {
-    return CurrentState().globalAlpha;
+    return CurrentState()->globalAlpha;
   }
 
   // Useful for silencing cast warnings
@@ -143,7 +141,7 @@ public:
   void SetGlobalAlpha(double aGlobalAlpha)
   {
     if (aGlobalAlpha >= 0.0 && aGlobalAlpha <= 1.0) {
-      CurrentState().globalAlpha = ToFloat(aGlobalAlpha);
+      CurrentState()->globalAlpha = ToFloat(aGlobalAlpha);
     }
   }
   void GetGlobalCompositeOperation(nsAString& aOp,
@@ -156,13 +154,13 @@ public:
   //
   bool ImageSmoothingEnabled()
   {
-    return CurrentState().imageSmoothingEnabled;
+    return CurrentState()->imageSmoothingEnabled;
   }
 
   void SetImageSmoothingEnabled(bool aImageSmoothingEnabled)
   {
-    if (aImageSmoothingEnabled != CurrentState().imageSmoothingEnabled) {
-      CurrentState().imageSmoothingEnabled = aImageSmoothingEnabled;
+    if (aImageSmoothingEnabled != CurrentState()->imageSmoothingEnabled) {
+      CurrentState()->imageSmoothingEnabled = aImageSmoothingEnabled;
     }
   }
 
@@ -216,39 +214,39 @@ public:
   //
   double ShadowOffsetX()
   {
-    return CurrentState().shadowOffset.x;
+    return CurrentState()->shadowOffset.x;
   }
 
   void SetShadowOffsetX(double aShadowOffsetX)
   {
-    CurrentState().shadowOffset.x = ToFloat(aShadowOffsetX);
+    CurrentState()->shadowOffset.x = ToFloat(aShadowOffsetX);
   }
 
   double ShadowOffsetY()
   {
-    return CurrentState().shadowOffset.y;
+    return CurrentState()->shadowOffset.y;
   }
 
   void SetShadowOffsetY(double aShadowOffsetY)
   {
-    CurrentState().shadowOffset.y = ToFloat(aShadowOffsetY);
+    CurrentState()->shadowOffset.y = ToFloat(aShadowOffsetY);
   }
 
   double ShadowBlur()
   {
-    return CurrentState().shadowBlur;
+    return CurrentState()->shadowBlur;
   }
 
   void SetShadowBlur(double aShadowBlur)
   {
     if (aShadowBlur >= 0.0) {
-      CurrentState().shadowBlur = ToFloat(aShadowBlur);
+      CurrentState()->shadowBlur = ToFloat(aShadowBlur);
     }
   }
 
   void GetShadowColor(nsAString& aShadowColor)
   {
-    StyleColorToString(CurrentState().shadowColor, aShadowColor);
+    StyleColorToString(CurrentState()->shadowColor, aShadowColor);
   }
 
   void SetShadowColor(const nsAString& aShadowColor);
@@ -304,13 +302,13 @@ public:
   //
   double LineWidth()
   {
-    return CurrentState().lineWidth;
+    return CurrentState()->lineWidth;
   }
 
   void SetLineWidth(double aWidth)
   {
     if (aWidth > 0.0) {
-      CurrentState().lineWidth = ToFloat(aWidth);
+      CurrentState()->lineWidth = ToFloat(aWidth);
     }
   }
   void GetLineCap(nsAString& aLinecapStyle);
@@ -321,13 +319,13 @@ public:
 
   double MiterLimit()
   {
-    return CurrentState().miterLimit;
+    return CurrentState()->miterLimit;
   }
 
   void SetMiterLimit(double aMiter)
   {
     if (aMiter > 0.0) {
-      CurrentState().miterLimit = ToFloat(aMiter);
+      CurrentState()->miterLimit = ToFloat(aMiter);
     }
   }
   void SetLineDash(const Sequence<double>& aSegments,
@@ -451,9 +449,12 @@ protected:
     RefPtr<mozilla::gfx::Path> clip;
     Matrix transform;
   };
-
+  public:
   // state stack handling
-  class ContextState {
+  class ContextState : public nsISupports {
+  protected:
+  virtual ~ContextState() {}
+
   public:
   ContextState() : textAlign(TextAlign::START),
                    textBaseline(TextBaseline::ALPHABETIC),
@@ -467,43 +468,35 @@ protected:
                    fillRule(mozilla::gfx::FillRule::FILL_WINDING),
                    lineCap(mozilla::gfx::CapStyle::BUTT),
                    lineJoin(mozilla::gfx::JoinStyle::MITER_OR_BEVEL),
-                   filterString(u"none"),
-                   filterSourceGraphicTainted(false),
                    imageSmoothingEnabled(true),
                    fontExplicitLanguage(false)
   { }
 
-  ContextState(const ContextState& aOther)
-      : fontGroup(aOther.fontGroup),
-        fontLanguage(aOther.fontLanguage),
-        fontFont(aOther.fontFont),
-        gradientStyles(aOther.gradientStyles),
-        patternStyles(aOther.patternStyles),
-        colorStyles(aOther.colorStyles),
-        font(aOther.font),
-        textAlign(aOther.textAlign),
-        textBaseline(aOther.textBaseline),
-        shadowColor(aOther.shadowColor),
-        transform(aOther.transform),
-        shadowOffset(aOther.shadowOffset),
-        lineWidth(aOther.lineWidth),
-        miterLimit(aOther.miterLimit),
-        globalAlpha(aOther.globalAlpha),
-        shadowBlur(aOther.shadowBlur),
-        dash(aOther.dash),
-        dashOffset(aOther.dashOffset),
-        op(aOther.op),
-        fillRule(aOther.fillRule),
-        lineCap(aOther.lineCap),
-        lineJoin(aOther.lineJoin),
-        filterString(aOther.filterString),
-        filterChain(aOther.filterChain),
-        filterChainObserver(aOther.filterChainObserver),
-        filter(aOther.filter),
-        filterAdditionalImages(aOther.filterAdditionalImages),
-        filterSourceGraphicTainted(aOther.filterSourceGraphicTainted),
-        imageSmoothingEnabled(aOther.imageSmoothingEnabled),
-        fontExplicitLanguage(aOther.fontExplicitLanguage)
+  ContextState(const ContextState* aOther)
+      : fontGroup(aOther->fontGroup),
+        fontLanguage(aOther->fontLanguage),
+        fontFont(aOther->fontFont),
+        gradientStyles(aOther->gradientStyles),
+        patternStyles(aOther->patternStyles),
+        colorStyles(aOther->colorStyles),
+        font(aOther->font),
+        textAlign(aOther->textAlign),
+        textBaseline(aOther->textBaseline),
+        shadowColor(aOther->shadowColor),
+        transform(aOther->transform),
+        shadowOffset(aOther->shadowOffset),
+        lineWidth(aOther->lineWidth),
+        miterLimit(aOther->miterLimit),
+        globalAlpha(aOther->globalAlpha),
+        shadowBlur(aOther->shadowBlur),
+        dash(aOther->dash),
+        dashOffset(aOther->dashOffset),
+        op(aOther->op),
+        fillRule(aOther->fillRule),
+        lineCap(aOther->lineCap),
+        lineJoin(aOther->lineJoin),
+        imageSmoothingEnabled(aOther->imageSmoothingEnabled),
+        fontExplicitLanguage(aOther->fontExplicitLanguage)
   { }
 
   void SetColorStyle(Style aWhichStyle, nscolor aColor)
@@ -544,6 +537,8 @@ protected:
     return std::min(SIGMA_MAX, shadowBlur / 2.0f);
   }
 
+  NS_DECL_ISUPPORTS
+
   nsTArray<ClipState> clipsAndTransforms;
 
   RefPtr<gfxFontGroup> fontGroup;
@@ -574,36 +569,17 @@ protected:
   mozilla::gfx::CapStyle lineCap;
   mozilla::gfx::JoinStyle lineJoin;
 
-  nsString filterString;
-  nsTArray<nsStyleFilter> filterChain;
-  RefPtr<nsSVGFilterChainObserver> filterChainObserver;
-  mozilla::gfx::FilterDescription filter;
-  nsTArray<RefPtr<mozilla::gfx::SourceSurface>> filterAdditionalImages;
-
-  // This keeps track of whether the canvas was "tainted" or not when
-  // we last used a filter. This is a security measure, whereby the
-  // canvas is flipped to write-only if a cross-origin image is drawn to it.
-  // This is to stop bad actors from reading back data they shouldn't have
-  // access to.
-  //
-  // This also limits what filters we can apply to the context; in particular
-  // feDisplacementMap is restricted.
-  //
-  // We keep track of this to ensure that if this gets out of sync with the
-  // tainted state of the canvas itself, we update our filters accordingly.
-  bool filterSourceGraphicTainted;
-
   bool imageSmoothingEnabled;
   bool fontExplicitLanguage;
   };
-
+protected:
   // Member vars
 
   RenderingMode mRenderingMode;
 
   layers::LayersBackend mCompositorBackend;
 
-  AutoTArray<ContextState, 3> mStyleStack;
+  AutoTArray<RefPtr<ContextState>, 3> mStyleStack;
 
   int32_t mWidth, mHeight;
 
@@ -680,6 +656,10 @@ protected:
   static mozilla::gfx::DrawTarget* sErrorTarget;
 
 protected:
+  virtual ContextState* CreateContextState(const ContextState* aOther = nullptr) {
+    return aOther ? new ContextState(aOther) : new ContextState();
+  }
+
   virtual HTMLCanvasElement* GetCanvasElement() = 0;
 
   NS_IMETHOD Reset();
@@ -760,12 +740,12 @@ protected:
     return !!mTarget && mTarget != sErrorTarget;
   }
 
-  inline ContextState& CurrentState() {
-    return mStyleStack[mStyleStack.Length() - 1];
+  inline ContextState* CurrentState() {
+    return mStyleStack[mStyleStack.Length() - 1].get();
   }
 
-  inline const ContextState& CurrentState() const {
-    return mStyleStack[mStyleStack.Length() - 1];
+  inline const ContextState* CurrentState() const {
+    return mStyleStack[mStyleStack.Length() - 1].get();
   }
 
   void DrawImage(const CanvasImageSource& aImgElt,
@@ -788,12 +768,12 @@ protected:
 
   void SetStyleFromGradient(CanvasGradient& aGradient, Style aWhichStyle)
   {
-    CurrentState().SetGradientStyle(aWhichStyle, &aGradient);
+    CurrentState()->SetGradientStyle(aWhichStyle, &aGradient);
   }
 
   void SetStyleFromPattern(CanvasPattern& aPattern, Style aWhichStyle)
   {
-    CurrentState().SetPatternStyle(aWhichStyle, &aPattern);
+    CurrentState()->SetPatternStyle(aWhichStyle, &aPattern);
   }
 
   // Returns whether a color was successfully parsed.
@@ -818,7 +798,7 @@ protected:
       return mozilla::gfx::CompositionOp::OP_OVER;
     }
 
-    return CurrentState().op;
+    return CurrentState()->op;
   }
 
   /**
@@ -827,12 +807,12 @@ protected:
     */
   bool NeedToDrawShadow()
   {
-    const ContextState& state = CurrentState();
+    const ContextState* state = CurrentState();
 
     // The spec says we should not draw shadows if the operator is OVER.
     // If it's over and the alpha value is zero, nothing needs to be drawn.
-    return NS_GET_A(state.shadowColor) != 0 &&
-      (state.shadowBlur != 0.f || state.shadowOffset.x != 0.f || state.shadowOffset.y != 0.f);
+    return NS_GET_A(state->shadowColor) != 0 &&
+      (state->shadowBlur != 0.f || state->shadowOffset.x != 0.f || state->shadowOffset.y != 0.f);
   }
 
   /**

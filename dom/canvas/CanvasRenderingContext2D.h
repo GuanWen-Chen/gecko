@@ -5,6 +5,7 @@
 #ifndef CanvasRenderingContext2D_h
 #define CanvasRenderingContext2D_h
 
+#include "FilterSupport.h"
 #include "mozilla/Attributes.h"
 #include <vector>
 #include "nsIDOMCanvasRenderingContext2D.h"
@@ -28,6 +29,8 @@
 
 class nsGlobalWindow;
 class nsXULElement;
+
+using mozilla::gfx::FilterDescription;
 
 namespace mozilla {
 namespace gl {
@@ -74,7 +77,7 @@ public:
 
   void GetFilter(nsAString& aFilter)
   {
-    aFilter = CurrentState().filterString;
+    aFilter = CurrentStateForFilter()->filterString;
   }
 
   void SetFilter(const nsAString& aFilter, mozilla::ErrorResult& aError);
@@ -250,7 +253,56 @@ public:
   // return true and fills in the bound rect if element has a hit region.
   bool GetHitRegionRect(Element* aElement, nsRect& aRect) override;
 
+  public:
+  // state stack handling
+  class ContextStateForFilter : public ContextState {
+  public:
+  ContextStateForFilter() : filterString(u"none"),
+                            filterSourceGraphicTainted(false)
+  { }
+
+  ContextStateForFilter(const ContextStateForFilter* aOther)
+      : ContextState(aOther),
+        filterString(aOther->filterString),
+        filterChain(aOther->filterChain),
+        filterChainObserver(aOther->filterChainObserver),
+        filter(aOther->filter),
+        filterAdditionalImages(aOther->filterAdditionalImages),
+        filterSourceGraphicTainted(aOther->filterSourceGraphicTainted)
+  { }
+  protected:
+  virtual ~ContextStateForFilter() {}
+  public:
+  NS_DECL_ISUPPORTS_INHERITED
+
+  nsString filterString;
+  nsTArray<nsStyleFilter> filterChain;
+  RefPtr<nsSVGFilterChainObserver> filterChainObserver;
+  mozilla::gfx::FilterDescription filter;
+  nsTArray<RefPtr<mozilla::gfx::SourceSurface>> filterAdditionalImages;
+
+  // This keeps track of whether the canvas was "tainted" or not when
+  // we last used a filter. This is a security measure, whereby the
+  // canvas is flipped to write-only if a cross-origin image is drawn to it.
+  // This is to stop bad actors from reading back data they shouldn't have
+  // access to.
+  //
+  // This also limits what filters we can apply to the context; in particular
+  // feDisplacementMap is restricted.
+  //
+  // We keep track of this to ensure that if this gets out of sync with the
+  // tainted state of the canvas itself, we update our filters accordingly.
+  bool filterSourceGraphicTainted;
+  };
+
 protected:
+  ContextState* CreateContextState(const ContextState* aOther = nullptr) override {
+    return CreateContextState((ContextStateForFilter*) aOther);
+  }
+  ContextState* CreateContextState(const ContextStateForFilter* aOther = nullptr) {
+    return aOther ? new ContextStateForFilter(aOther) : new ContextStateForFilter();
+  }
+
   HTMLCanvasElement* GetCanvasElement() override { return mCanvasElement; }
   nsresult GetImageDataArray(JSContext* aCx, int32_t aX, int32_t aY,
                              uint32_t aWidth, uint32_t aHeight,
@@ -305,8 +357,8 @@ protected:
   mozilla::gfx::SurfaceFormat GetSurfaceFormat() const override;
 
   /**
-   * Update CurrentState().filter with the filter description for
-   * CurrentState().filterChain.
+   * Update CurrentState()->filter with the filter description for
+   * CurrentState()->filterChain.
    * Flushes the PresShell, so the world can change if you call this function.
    */
   void UpdateFilter();
@@ -316,7 +368,7 @@ protected:
     /* will initilize the value if not set, else does nothing */
     GetCurrentFontStyle();
 
-    return CurrentState().font;
+    return CurrentState()->font;
   }
 
   // This function maintains a list of raw pointers to cycle-collected
@@ -410,12 +462,12 @@ protected:
    */
   const gfx::FilterDescription& EnsureUpdatedFilter() {
     bool isWriteOnly = mCanvasElement && mCanvasElement->IsWriteOnly();
-    if (CurrentState().filterSourceGraphicTainted != isWriteOnly) {
+    if (CurrentStateForFilter()->filterSourceGraphicTainted != isWriteOnly) {
       UpdateFilter();
       EnsureTarget();
     }
-    MOZ_ASSERT(CurrentState().filterSourceGraphicTainted == isWriteOnly);
-    return CurrentState().filter;
+    MOZ_ASSERT(CurrentStateForFilter()->filterSourceGraphicTainted == isWriteOnly);
+    return CurrentStateForFilter()->filter;
   }
 
 protected:
@@ -426,6 +478,14 @@ protected:
   };
 
 protected:
+  inline ContextStateForFilter* CurrentStateForFilter() {
+    return static_cast<ContextStateForFilter*>(mStyleStack[mStyleStack.Length() - 1].get());
+  }
+
+  inline const ContextStateForFilter* CurrentStateForFilterlter() const {
+    return static_cast<ContextStateForFilter*>(mStyleStack[mStyleStack.Length() - 1].get());
+  }
+
   gfxFontGroup *GetCurrentFontStyle();
 
   /**

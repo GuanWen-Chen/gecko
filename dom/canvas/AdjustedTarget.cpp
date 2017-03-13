@@ -3,6 +3,7 @@
  * All coordinates passed to the constructor are in device space.
  */
 #include "AdjustedTarget.h"
+#include "mozilla/dom/CanvasRenderingContext2D.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 
 using mozilla::gfx::DrawTarget;
@@ -10,7 +11,7 @@ using mozilla::gfx::DrawTarget;
 namespace mozilla {
 namespace dom {
 
-AdjustedTargetForFilter::AdjustedTargetForFilter(BasicRenderingContext2D* aCtx,
+AdjustedTargetForFilter::AdjustedTargetForFilter(CanvasRenderingContext2D* aCtx,
                         DrawTarget* aFinalTarget,
                         const gfx::IntPoint& aFilterSpaceToTargetOffset,
                         const gfx::IntRect& aPreFilterBounds,
@@ -29,7 +30,7 @@ AdjustedTargetForFilter::AdjustedTargetForFilter(BasicRenderingContext2D* aCtx,
   nsIntRegion strokePaintNeededRegion;
 
   FilterSupport::ComputeSourceNeededRegions(
-    aCtx->CurrentState().filter, mPostFilterBounds,
+    aCtx->CurrentStateForFilter()->filter, mPostFilterBounds,
     sourceGraphicNeededRegion, fillPaintNeededRegion,
     strokePaintNeededRegion);
 
@@ -106,18 +107,18 @@ AdjustedTargetForFilter::~AdjustedTargetForFilter()
   AutoRestoreTransform autoRestoreTransform(mFinalTarget);
   mFinalTarget->SetTransform(Matrix());
 
-  MOZ_RELEASE_ASSERT(!mCtx->CurrentState().filter.mPrimitives.IsEmpty());
+  MOZ_RELEASE_ASSERT(!mCtx->CurrentStateForFilter()->filter.mPrimitives.IsEmpty());
   gfx::FilterSupport::RenderFilterDescription(
-    mFinalTarget, mCtx->CurrentState().filter,
+    mFinalTarget, mCtx->CurrentStateForFilter()->filter,
     gfx::Rect(mPostFilterBounds),
     snapshot, mSourceGraphicRect,
     fillPaint, mFillPaintRect,
     strokePaint, mStrokePaintRect,
-    mCtx->CurrentState().filterAdditionalImages,
+    mCtx->CurrentStateForFilter()->filterAdditionalImages,
     mPostFilterBounds.TopLeft() - mOffset,
     DrawOptions(1.0f, mCompositionOp));
 
-  const gfx::FilterDescription& filter = mCtx->CurrentState().filter;
+  const gfx::FilterDescription& filter = mCtx->CurrentStateForFilter()->filter;
   MOZ_RELEASE_ASSERT(!filter.mPrimitives.IsEmpty());
   if (filter.mPrimitives.LastElement().IsTainted() &&
       mCtx->GetCanvasElement()) {
@@ -140,13 +141,13 @@ AdjustedTargetForShadow::AdjustedTargetForShadow(BasicRenderingContext2D* aCtx,
   mCtx = aCtx;
   mFinalTarget = aFinalTarget;
 
-  const ContextState &state = mCtx->CurrentState();
+  const ContextState* state = mCtx->CurrentState();
 
-  mSigma = state.ShadowBlurSigma();
+  mSigma = state->ShadowBlurSigma();
 
   gfx::Rect bounds = aBounds;
 
-  int32_t blurRadius = state.ShadowBlurRadius();
+  int32_t blurRadius = state->ShadowBlurRadius();
 
   // We actually include the bounds of the shadow blur, this makes it
   // easier to execute the actual blur on hardware, and shouldn't affect
@@ -181,8 +182,8 @@ AdjustedTargetForShadow::~AdjustedTargetForShadow()
   RefPtr<SourceSurface> snapshot = mTarget->Snapshot();
 
   mFinalTarget->DrawSurfaceWithShadow(snapshot, mTempRect.TopLeft(),
-                                      Color::FromABGR(mCtx->CurrentState().shadowColor),
-                                      mCtx->CurrentState().shadowOffset, mSigma,
+                                      Color::FromABGR(mCtx->CurrentState()->shadowColor),
+                                      mCtx->CurrentState()->shadowOffset, mSigma,
                                       mCompositionOp);
 }
 
@@ -220,7 +221,7 @@ AdjustedTarget::AdjustedTarget(BasicRenderingContext2D* aCtx, const gfx::Rect *a
   }
   gfx::Rect boundsAfterFilter = BoundsAfterFilter(bounds, aCtx);
 
-  mozilla::gfx::CompositionOp op = aCtx->CurrentState().op;
+  mozilla::gfx::CompositionOp op = aCtx->CurrentState()->op;
 
   gfx::IntPoint offsetToFinalDT;
 
@@ -250,7 +251,7 @@ AdjustedTarget::AdjustedTarget(BasicRenderingContext2D* aCtx, const gfx::Rect *a
       return;
     }
     mFilterTarget = MakeUnique<AdjustedTargetForFilter>(
-      aCtx, mTarget, offsetToFinalDT, intBounds,
+      static_cast<CanvasRenderingContext2D*>(aCtx), mTarget, offsetToFinalDT, intBounds,
       gfx::RoundedToInt(boundsAfterFilter), op);
     mTarget = mFilterTarget->DT();
   }
@@ -283,8 +284,11 @@ AdjustedTarget::MaxSourceNeededBoundsForFilter(const gfx::Rect& aDestBounds, Bas
   nsIntRegion fillPaintNeededRegion;
   nsIntRegion strokePaintNeededRegion;
 
+  // Only CanvasRenderingContext2D supports filter features, others will blocked
+  // by NeedToApplyFilter().
   FilterSupport::ComputeSourceNeededRegions(
-    aCtx->CurrentState().filter, gfx::RoundedToInt(aDestBounds),
+    static_cast<CanvasRenderingContext2D*>(aCtx)->CurrentStateForFilter()->filter,
+    gfx::RoundedToInt(aDestBounds),
     sourceGraphicNeededRegion, fillPaintNeededRegion, strokePaintNeededRegion);
 
   return gfx::Rect(sourceGraphicNeededRegion.GetBounds());
@@ -297,9 +301,9 @@ AdjustedTarget::MaxSourceNeededBoundsForShadow(const gfx::Rect& aDestBounds, Bas
     return aDestBounds;
   }
 
-  const ContextState &state = aCtx->CurrentState();
-  gfx::Rect sourceBounds = aDestBounds - state.shadowOffset;
-  sourceBounds.Inflate(state.ShadowBlurRadius());
+  const ContextState* state = aCtx->CurrentState();
+  gfx::Rect sourceBounds = aDestBounds - state->shadowOffset;
+  sourceBounds.Inflate(state->ShadowBlurRadius());
 
   // Union the shadow source with the original rect because we're going to
   // draw both.
@@ -321,9 +325,12 @@ AdjustedTarget::BoundsAfterFilter(const gfx::Rect& aBounds, BasicRenderingContex
     return gfx::Rect();
   }
 
+  // Only CanvasRenderingContext2D supports filter features, others will blocked
+  // by NeedToApplyFilter().
   nsIntRegion extents =
-    gfx::FilterSupport::ComputePostFilterExtents(aCtx->CurrentState().filter,
-                                                 intBounds);
+    gfx::FilterSupport::ComputePostFilterExtents(
+      static_cast<CanvasRenderingContext2D*>(aCtx)->CurrentStateForFilter()->filter,
+      intBounds);
   return gfx::Rect(extents.GetBounds());
 }
 

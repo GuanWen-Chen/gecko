@@ -152,6 +152,11 @@ using namespace mozilla::layers;
 namespace mozilla {
 namespace dom {
 
+typedef BasicRenderingContext2D::ContextState ContextState;
+typedef CanvasRenderingContext2D::ContextStateForFilter ContextStateForFilter;
+
+NS_IMPL_ISUPPORTS_INHERITED0(ContextStateForFilter, ContextState)
+
 class CanvasDrawObserver
 {
 public:
@@ -326,7 +331,7 @@ public:
     if (!mContext) {
       MOZ_CRASH("GFX: This should never be called without a context");
     }
-    // Refresh the cached FilterDescription in mContext->CurrentState().filter.
+    // Refresh the cached FilterDescription in mContext->CurrentStateForFilter()->filter.
     // If this filter is not at the top of the state stack, we'll refresh the
     // wrong filter, but that's ok, because we'll refresh the right filter
     // when we pop the state stack in CanvasRenderingContext2D::Restore().
@@ -350,16 +355,17 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(CanvasRenderingContext2D)
   CanvasRenderingContext2D::RemoveDemotableContext(tmp);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCanvasElement)
   for (uint32_t i = 0; i < tmp->mStyleStack.Length(); i++) {
-    ImplCycleCollectionUnlink(tmp->mStyleStack[i].patternStyles[Style::STROKE]);
-    ImplCycleCollectionUnlink(tmp->mStyleStack[i].patternStyles[Style::FILL]);
-    ImplCycleCollectionUnlink(tmp->mStyleStack[i].gradientStyles[Style::STROKE]);
-    ImplCycleCollectionUnlink(tmp->mStyleStack[i].gradientStyles[Style::FILL]);
+    ImplCycleCollectionUnlink(tmp->mStyleStack[i]->patternStyles[Style::STROKE]);
+    ImplCycleCollectionUnlink(tmp->mStyleStack[i]->patternStyles[Style::FILL]);
+    ImplCycleCollectionUnlink(tmp->mStyleStack[i]->gradientStyles[Style::STROKE]);
+    ImplCycleCollectionUnlink(tmp->mStyleStack[i]->gradientStyles[Style::FILL]);
+    ContextStateForFilter* contextForFilter = static_cast<ContextStateForFilter*>(tmp->mStyleStack[i].get());
     CanvasFilterChainObserver *filterChainObserver =
-      static_cast<CanvasFilterChainObserver*>(tmp->mStyleStack[i].filterChainObserver.get());
+      static_cast<CanvasFilterChainObserver*>(contextForFilter->filterChainObserver.get());
     if (filterChainObserver) {
       filterChainObserver->DetachFromContext();
     }
-    ImplCycleCollectionUnlink(tmp->mStyleStack[i].filterChainObserver);
+    ImplCycleCollectionUnlink(contextForFilter->filterChainObserver);
   }
   for (size_t x = 0 ; x < tmp->mHitRegionsOptions.Length(); x++) {
     RegionInfo& info = tmp->mHitRegionsOptions[x];
@@ -373,11 +379,12 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(CanvasRenderingContext2D)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCanvasElement)
   for (uint32_t i = 0; i < tmp->mStyleStack.Length(); i++) {
-    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i].patternStyles[Style::STROKE], "Stroke CanvasPattern");
-    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i].patternStyles[Style::FILL], "Fill CanvasPattern");
-    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i].gradientStyles[Style::STROKE], "Stroke CanvasGradient");
-    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i].gradientStyles[Style::FILL], "Fill CanvasGradient");
-    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i].filterChainObserver, "Filter Chain Observer");
+    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i]->patternStyles[Style::STROKE], "Stroke CanvasPattern");
+    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i]->patternStyles[Style::FILL], "Fill CanvasPattern");
+    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i]->gradientStyles[Style::STROKE], "Stroke CanvasGradient");
+    ImplCycleCollectionTraverse(cb, tmp->mStyleStack[i]->gradientStyles[Style::FILL], "Fill CanvasGradient");
+    ContextStateForFilter* contextForFilter = static_cast<ContextStateForFilter*>(tmp->mStyleStack[i].get());
+    ImplCycleCollectionTraverse(cb, contextForFilter->filterChainObserver, "Filter Chain Observer");
   }
   for (size_t x = 0 ; x < tmp->mHitRegionsOptions.Length(); x++) {
     RegionInfo& info = tmp->mHitRegionsOptions[x];
@@ -925,11 +932,9 @@ void
 CanvasRenderingContext2D::ClearTarget()
 {
   Reset();
-
   mResetLayer = true;
 
   SetInitialState();
-
   // For vertical writing-mode, unless text-orientation is sideways,
   // we'll modify the initial value of textBaseline to 'middle'.
   RefPtr<nsStyleContext> canvasStyle;
@@ -943,7 +948,7 @@ CanvasRenderingContext2D::ClearTarget()
       if (canvasStyle) {
         WritingMode wm(canvasStyle);
         if (wm.IsVertical() && !wm.IsSideways()) {
-          CurrentState().textBaseline = TextBaseline::MIDDLE;
+          CurrentStateForFilter()->textBaseline = TextBaseline::MIDDLE;
         }
       }
     }
@@ -1237,13 +1242,13 @@ CanvasRenderingContext2D::SetFillRule(const nsAString& aString)
   else
     return;
 
-  CurrentState().fillRule = rule;
+  CurrentStateForFilter()->fillRule = rule;
 }
 
 void
 CanvasRenderingContext2D::GetFillRule(nsAString& aString)
 {
-  switch (CurrentState().fillRule) {
+  switch (CurrentStateForFilter()->fillRule) {
   case FillRule::FILL_WINDING:
     aString.AssignLiteral("nonzero"); break;
   case FillRule::FILL_EVEN_ODD:
@@ -1513,11 +1518,11 @@ CanvasRenderingContext2D::SetFilter(const nsAString& aFilter, ErrorResult& aErro
 {
   nsTArray<nsStyleFilter> filterChain;
   if (ParseFilter(aFilter, filterChain, aError)) {
-    CurrentState().filterString = aFilter;
-    filterChain.SwapElements(CurrentState().filterChain);
+    CurrentStateForFilter()->filterString = aFilter;
+    filterChain.SwapElements(CurrentStateForFilter()->filterChain);
     if (mCanvasElement) {
-      CurrentState().filterChainObserver =
-        new CanvasFilterChainObserver(CurrentState().filterChain,
+      CurrentStateForFilter()->filterChainObserver =
+        new CanvasFilterChainObserver(CurrentStateForFilter()->filterChain,
                                       mCanvasElement, this);
       UpdateFilter();
     }
@@ -1574,8 +1579,8 @@ CanvasRenderingContext2D::UpdateFilter()
   if (!presShell || presShell->IsDestroying()) {
     // Ensure we set an empty filter and update the state to
     // reflect the current "taint" status of the canvas
-    CurrentState().filter = FilterDescription();
-    CurrentState().filterSourceGraphicTainted =
+    CurrentStateForFilter()->filter = FilterDescription();
+    CurrentStateForFilter()->filterSourceGraphicTainted =
       (mCanvasElement && mCanvasElement->IsWriteOnly());
     return;
   }
@@ -1588,18 +1593,18 @@ CanvasRenderingContext2D::UpdateFilter()
   bool sourceGraphicIsTainted =
     (mCanvasElement && mCanvasElement->IsWriteOnly());
 
-  CurrentState().filter =
+  CurrentStateForFilter()->filter =
     nsFilterInstance::GetFilterDescription(mCanvasElement,
-      CurrentState().filterChain,
+      CurrentStateForFilter()->filterChain,
       sourceGraphicIsTainted,
       CanvasUserSpaceMetrics(GetSize(),
-                             CurrentState().fontFont,
-                             CurrentState().fontLanguage,
-                             CurrentState().fontExplicitLanguage,
+                             CurrentStateForFilter()->fontFont,
+                             CurrentStateForFilter()->fontLanguage,
+                             CurrentStateForFilter()->fontExplicitLanguage,
                              presShell->GetPresContext()),
       gfxRect(0, 0, mWidth, mHeight),
-      CurrentState().filterAdditionalImages);
-  CurrentState().filterSourceGraphicTainted = sourceGraphicIsTainted;
+      CurrentStateForFilter()->filterAdditionalImages);
+  CurrentStateForFilter()->filterSourceGraphicTainted = sourceGraphicIsTainted;
 }
 
 //
@@ -1619,26 +1624,26 @@ void CanvasRenderingContext2D::DrawFocusIfNeeded(mozilla::dom::Element& aElement
     Save();
 
     // set state to conforming focus state
-    ContextState& state = CurrentState();
-    state.globalAlpha = 1.0;
-    state.shadowBlur = 0;
-    state.shadowOffset.x = 0;
-    state.shadowOffset.y = 0;
-    state.op = mozilla::gfx::CompositionOp::OP_OVER;
+    ContextState* state = CurrentStateForFilter();
+    state->globalAlpha = 1.0;
+    state->shadowBlur = 0;
+    state->shadowOffset.x = 0;
+    state->shadowOffset.y = 0;
+    state->op = mozilla::gfx::CompositionOp::OP_OVER;
 
-    state.lineCap = CapStyle::BUTT;
-    state.lineJoin = mozilla::gfx::JoinStyle::MITER_OR_BEVEL;
-    state.lineWidth = 1;
-    CurrentState().dash.Clear();
+    state->lineCap = CapStyle::BUTT;
+    state->lineJoin = mozilla::gfx::JoinStyle::MITER_OR_BEVEL;
+    state->lineWidth = 1;
+    CurrentStateForFilter()->dash.Clear();
 
     // color and style of the rings is the same as for image maps
     // set the background focus color
-    CurrentState().SetColorStyle(Style::STROKE, NS_RGBA(255, 255, 255, 255));
+    CurrentStateForFilter()->SetColorStyle(Style::STROKE, NS_RGBA(255, 255, 255, 255));
     // draw the focus ring
     Stroke();
 
     // set dashing for foreground
-    nsTArray<mozilla::gfx::Float>& dash = CurrentState().dash;
+    nsTArray<mozilla::gfx::Float>& dash = CurrentStateForFilter()->dash;
     for (uint32_t i = 0; i < 2; ++i) {
       if (!dash.AppendElement(1, fallible)) {
         aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
@@ -1647,7 +1652,7 @@ void CanvasRenderingContext2D::DrawFocusIfNeeded(mozilla::dom::Element& aElement
     }
 
     // set the foreground focus color
-    CurrentState().SetColorStyle(Style::STROKE, NS_RGBA(0,0,0, 255));
+    CurrentStateForFilter()->SetColorStyle(Style::STROKE, NS_RGBA(0,0,0, 255));
     // draw the focus ring
     Stroke();
 
@@ -1751,13 +1756,13 @@ CanvasRenderingContext2D::SetFontInternal(const nsAString& aFont,
     c->DeviceContext()->GetMetricsFor(resizedFont, params);
 
   gfxFontGroup* newFontGroup = metrics->GetThebesFontGroup();
-  CurrentState().fontGroup = newFontGroup;
-  NS_ASSERTION(CurrentState().fontGroup, "Could not get font group");
-  CurrentState().font = usedFont;
-  CurrentState().fontFont = fontStyle->mFont;
-  CurrentState().fontFont.size = fontStyle->mSize;
-  CurrentState().fontLanguage = fontStyle->mLanguage;
-  CurrentState().fontExplicitLanguage = fontStyle->mExplicitLanguage;
+  CurrentStateForFilter()->fontGroup = newFontGroup;
+  NS_ASSERTION(CurrentStateForFilter()->fontGroup, "Could not get font group");
+  CurrentStateForFilter()->font = usedFont;
+  CurrentStateForFilter()->fontFont = fontStyle->mFont;
+  CurrentStateForFilter()->fontFont.size = fontStyle->mSize;
+  CurrentStateForFilter()->fontLanguage = fontStyle->mLanguage;
+  CurrentStateForFilter()->fontExplicitLanguage = fontStyle->mExplicitLanguage;
 
   return true;
 }
@@ -1766,21 +1771,21 @@ void
 CanvasRenderingContext2D::SetTextAlign(const nsAString& aTextAlign)
 {
   if (aTextAlign.EqualsLiteral("start"))
-    CurrentState().textAlign = TextAlign::START;
+    CurrentStateForFilter()->textAlign = TextAlign::START;
   else if (aTextAlign.EqualsLiteral("end"))
-    CurrentState().textAlign = TextAlign::END;
+    CurrentStateForFilter()->textAlign = TextAlign::END;
   else if (aTextAlign.EqualsLiteral("left"))
-    CurrentState().textAlign = TextAlign::LEFT;
+    CurrentStateForFilter()->textAlign = TextAlign::LEFT;
   else if (aTextAlign.EqualsLiteral("right"))
-    CurrentState().textAlign = TextAlign::RIGHT;
+    CurrentStateForFilter()->textAlign = TextAlign::RIGHT;
   else if (aTextAlign.EqualsLiteral("center"))
-    CurrentState().textAlign = TextAlign::CENTER;
+    CurrentStateForFilter()->textAlign = TextAlign::CENTER;
 }
 
 void
 CanvasRenderingContext2D::GetTextAlign(nsAString& aTextAlign)
 {
-  switch (CurrentState().textAlign)
+  switch (CurrentStateForFilter()->textAlign)
   {
   case TextAlign::START:
     aTextAlign.AssignLiteral("start");
@@ -1804,23 +1809,23 @@ void
 CanvasRenderingContext2D::SetTextBaseline(const nsAString& aTextBaseline)
 {
   if (aTextBaseline.EqualsLiteral("top"))
-    CurrentState().textBaseline = TextBaseline::TOP;
+    CurrentStateForFilter()->textBaseline = TextBaseline::TOP;
   else if (aTextBaseline.EqualsLiteral("hanging"))
-    CurrentState().textBaseline = TextBaseline::HANGING;
+    CurrentStateForFilter()->textBaseline = TextBaseline::HANGING;
   else if (aTextBaseline.EqualsLiteral("middle"))
-    CurrentState().textBaseline = TextBaseline::MIDDLE;
+    CurrentStateForFilter()->textBaseline = TextBaseline::MIDDLE;
   else if (aTextBaseline.EqualsLiteral("alphabetic"))
-    CurrentState().textBaseline = TextBaseline::ALPHABETIC;
+    CurrentStateForFilter()->textBaseline = TextBaseline::ALPHABETIC;
   else if (aTextBaseline.EqualsLiteral("ideographic"))
-    CurrentState().textBaseline = TextBaseline::IDEOGRAPHIC;
+    CurrentStateForFilter()->textBaseline = TextBaseline::IDEOGRAPHIC;
   else if (aTextBaseline.EqualsLiteral("bottom"))
-    CurrentState().textBaseline = TextBaseline::BOTTOM;
+    CurrentStateForFilter()->textBaseline = TextBaseline::BOTTOM;
 }
 
 void
 CanvasRenderingContext2D::GetTextBaseline(nsAString& aTextBaseline)
 {
-  switch (CurrentState().textBaseline)
+  switch (CurrentStateForFilter()->textBaseline)
   {
   case TextBaseline::TOP:
     aTextBaseline.AssignLiteral("top");
@@ -2309,7 +2314,7 @@ CanvasRenderingContext2D::DrawOrMeasureText(const nsAString& aRawText,
     return NS_OK;
   }
 
-  const ContextState &state = CurrentState();
+  const ContextState* state = CurrentStateForFilter();
 
   // This is only needed to know if we can know the drawing bounding box easily.
   bool doCalculateBounds = NeedToCalculateBounds();
@@ -2339,7 +2344,7 @@ CanvasRenderingContext2D::DrawOrMeasureText(const nsAString& aRawText,
   processor.mOp = aOp;
   processor.mBoundingBox = gfxRect(0, 0, 0, 0);
   processor.mDoMeasureBoundingBox = doCalculateBounds || !mIsEntireFrameInvalid;
-  processor.mState = &CurrentState();
+  processor.mState = CurrentStateForFilter();
   processor.mFontgrp = currentFontStyle;
 
   nscoord totalWidthCoord;
@@ -2374,11 +2379,11 @@ CanvasRenderingContext2D::DrawOrMeasureText(const nsAString& aRawText,
   // offset pt.x based on text align
   gfxFloat anchorX;
 
-  if (state.textAlign == TextAlign::CENTER) {
+  if (state->textAlign == TextAlign::CENTER) {
     anchorX = .5;
-  } else if (state.textAlign == TextAlign::LEFT ||
-            (!isRTL && state.textAlign == TextAlign::START) ||
-            (isRTL && state.textAlign == TextAlign::END)) {
+  } else if (state->textAlign == TextAlign::LEFT ||
+            (!isRTL && state->textAlign == TextAlign::START) ||
+            (isRTL && state->textAlign == TextAlign::END)) {
     anchorX = 0;
   } else {
     anchorX = 1;
@@ -2393,7 +2398,7 @@ CanvasRenderingContext2D::DrawOrMeasureText(const nsAString& aRawText,
 
   gfxFloat baselineAnchor;
 
-  switch (state.textBaseline)
+  switch (state->textBaseline)
   {
   case TextBaseline::HANGING:
       // fall through; best we can do with the information available
@@ -2489,7 +2494,7 @@ CanvasRenderingContext2D::DrawOrMeasureText(const nsAString& aRawText,
 gfxFontGroup *CanvasRenderingContext2D::GetCurrentFontStyle()
 {
   // use lazy initilization for the font group since it's rather expensive
-  if (!CurrentState().fontGroup) {
+  if (!CurrentStateForFilter()->fontGroup) {
     ErrorResult err;
     NS_NAMED_LITERAL_STRING(kDefaultFontStyle, "10px sans-serif");
     static float kDefaultFontSize = 10.0;
@@ -2506,19 +2511,19 @@ gfxFontGroup *CanvasRenderingContext2D::GetCurrentFontStyle()
       int32_t perDevPixel, perCSSPixel;
       GetAppUnitsValues(&perDevPixel, &perCSSPixel);
       gfxFloat devToCssSize = gfxFloat(perDevPixel) / gfxFloat(perCSSPixel);
-      CurrentState().fontGroup =
+      CurrentStateForFilter()->fontGroup =
         gfxPlatform::GetPlatform()->CreateFontGroup(FontFamilyList(eFamily_sans_serif),
                                                     &style, tp,
                                                     nullptr, devToCssSize);
-      if (CurrentState().fontGroup) {
-        CurrentState().font = kDefaultFontStyle;
+      if (CurrentStateForFilter()->fontGroup) {
+        CurrentStateForFilter()->font = kDefaultFontStyle;
       } else {
         NS_ERROR("Default canvas font is invalid");
       }
     }
   }
 
-  return CurrentState().fontGroup;
+  return CurrentStateForFilter()->fontGroup;
 }
 
 //
@@ -2885,7 +2890,7 @@ void
 CanvasRenderingContext2D::FillRuleChanged()
 {
   if (mPath) {
-    mPathBuilder = mPath->CopyToBuilder(CurrentState().fillRule);
+    mPathBuilder = mPath->CopyToBuilder(CurrentStateForFilter()->fillRule);
     mPath = nullptr;
   }
 }

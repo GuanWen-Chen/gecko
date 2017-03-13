@@ -30,7 +30,7 @@ class AdjustedTargetForFilter
 public:
   typedef BasicRenderingContext2D::ContextState ContextState;
 
-  AdjustedTargetForFilter(BasicRenderingContext2D* aCtx,
+  AdjustedTargetForFilter(CanvasRenderingContext2D* aCtx,
                           DrawTarget* aFinalTarget,
                           const gfx::IntPoint& aFilterSpaceToTargetOffset,
                           const gfx::IntRect& aPreFilterBounds,
@@ -48,7 +48,7 @@ public:
 private:
   RefPtr<DrawTarget> mTarget;
   RefPtr<DrawTarget> mFinalTarget;
-  BasicRenderingContext2D *mCtx;
+  CanvasRenderingContext2D *mCtx;
   gfx::IntRect mSourceGraphicRect;
   gfx::IntRect mFillPaintRect;
   gfx::IntRect mStrokePaintRect;
