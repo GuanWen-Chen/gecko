@@ -348,8 +348,13 @@ ClientLayerManager::EndTransactionInternal(DrawPaintedLayerCallback aCallback,
 
   GetRoot()->ComputeEffectiveTransforms(Matrix4x4());
 
-  // Skip the painting if the device is in device-reset status.
-  if (!gfxPlatform::GetPlatform()->DidRenderingDeviceReset()) {
+  bool syncObjCheck = !XRE_IsContentProcess()
+	  || (mForwarder->GetSyncObject() && mForwarder->GetSyncObject()->IsSyncObjectValid());
+  /**
+   * Skip the painting if the device is in device-reset status or the
+   * SyncObject is not ready.
+   */
+  if (!gfxPlatform::GetPlatform()->DidRenderingDeviceReset() && syncObjCheck) {
     if (gfxPrefs::AlwaysPaint() && XRE_IsContentProcess()) {
       TimeStamp start = TimeStamp::Now();
       root->RenderLayer();

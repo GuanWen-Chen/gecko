@@ -430,6 +430,12 @@ private:
   RefPtr<ID3D11Texture2D> mD3D11Texture;
   RefPtr<IDXGIKeyedMutex> mKeyedMutex;
   std::vector<ID3D11Texture2D*> mD3D11SyncedTextures;
+  /**
+   * When there are two device reset happened in row, the program might gets
+   * expired handle with device in stable state. We set this flag to avoid
+   * this situation.
+   */
+  bool mValid;
 };
 
 inline uint32_t GetMaxTextureSizeForFeatureLevel(D3D_FEATURE_LEVEL aFeatureLevel)

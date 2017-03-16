@@ -1202,6 +1202,7 @@ CompositingRenderTargetD3D11::GetSize() const
 
 SyncObjectD3D11::SyncObjectD3D11(SyncHandle aSyncHandle, ID3D11Device* aDevice)
  : mSyncHandle(aSyncHandle)
+ , mValid(true)
 {
   if (!aDevice) {
     mD3D11Device = DeviceManagerDx::Get()->GetContentDevice();
@@ -1227,7 +1228,8 @@ SyncObjectD3D11::Init()
     if (!CompositorBridgeChild::CompositorIsInGPUProcess() &&
         !DeviceManagerDx::Get()->HasDeviceReset())
     {
-      gfxDevCrash(LogReason::D3D11FinalizeFrame) << "Without device reset: " << hexa(hr);
+      gfxCriticalNote << "Wothout device reset: " << hexa(hr);
+      mValid = false;
     } else {
       return false;
     }
@@ -1254,7 +1256,7 @@ bool
 SyncObjectD3D11::IsSyncObjectValid()
 {
   RefPtr<ID3D11Device> dev = DeviceManagerDx::Get()->GetContentDevice();
-  if (!dev || (NS_IsMainThread() && dev != mD3D11Device)) {
+  if (!dev || (NS_IsMainThread() && dev != mD3D11Device) || !mValid) {
     return false;
   }
   return true;
