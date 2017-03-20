@@ -239,7 +239,8 @@ public:
                                               const LayersBackend& aLayersBackend,
                                               const TextureFlags& aFlags,
                                               const uint64_t& aId,
-                                              const uint64_t& aSerial) override;
+                                              const uint64_t& aSerial,
+                                              const uint64_t& aLayerId = 0) override;
   virtual bool DeallocPTextureParent(PTextureParent* actor) override;
 
   virtual bool IsSameProcess() const override;

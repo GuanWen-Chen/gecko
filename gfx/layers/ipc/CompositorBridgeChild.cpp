@@ -18,6 +18,7 @@
 #include "mozilla/layers/APZCTreeManagerChild.h"
 #include "mozilla/layers/LayerTransactionChild.h"
 #include "mozilla/layers/PLayerTransactionChild.h"
+#include "mozilla/layers/PTextureChild.h"
 #include "mozilla/layers/TextureClient.h"// for TextureClient
 #include "mozilla/layers/TextureClientPool.h"// for TextureClientPool
 #include "mozilla/layers/WebRenderBridgeChild.h"
@@ -32,7 +33,9 @@
 #include "nsTArray.h"                   // for nsTArray, nsTArray_Impl
 #include "nsXULAppAPI.h"                // for XRE_GetIOMessageLoop, etc
 #include "FrameLayerBuilder.h"
+#include "mozilla/Dispatcher.h"
 #include "mozilla/dom/TabChild.h"
+#include "mozilla/dom/TabGroup.h"
 #include "mozilla/dom/TabParent.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/Unused.h"
@@ -50,6 +53,8 @@ using mozilla::layers::LayerTransactionChild;
 using mozilla::dom::TabChildBase;
 using mozilla::Unused;
 using mozilla::gfx::GPUProcessManager;
+using mozilla::dom::TabGroup;
+using mozilla::Dispatcher;
 
 namespace mozilla {
 namespace layers {
@@ -878,9 +883,25 @@ CompositorBridgeChild::AllocPTextureChild(const SurfaceDescriptor&,
                                           const LayersBackend&,
                                           const TextureFlags&,
                                           const uint64_t&,
-                                          const uint64_t& aSerial)
+                                          const uint64_t& aSerial,
+                                          const uint64_t& aLayerId)
 {
-  return TextureClient::CreateIPDLActor();
+  PTextureChild* textureChild = TextureClient::CreateIPDLActor();
+
+  RefPtr<Dispatcher> dispatcher;
+  TabChild* tabChild = TabChild::GetFrom(aLayerId);
+
+  if (tabChild || aLayerId != 0) {
+    dispatcher = tabChild->TabGroup();
+
+    if (dispatcher) {
+      nsCOMPtr<nsIEventTarget> target =
+        dispatcher->EventTargetFor(TaskCategory::Other);
+      SetEventTargetForActor(textureChild, target);
+    }
+  }
+
+  return textureChild;
 }
 
 bool
@@ -1027,9 +1048,10 @@ PTextureChild*
 CompositorBridgeChild::CreateTexture(const SurfaceDescriptor& aSharedData,
                                      LayersBackend aLayersBackend,
                                      TextureFlags aFlags,
-                                     uint64_t aSerial)
+                                     uint64_t aSerial,
+                                     uint64_t aLayerId)
 {
-  return PCompositorBridgeChild::SendPTextureConstructor(aSharedData, aLayersBackend, aFlags, 0 /* FIXME? */, aSerial);
+  return PCompositorBridgeChild::SendPTextureConstructor(aSharedData, aLayersBackend, aFlags, 0 /* FIXME? */, aSerial, aLayerId);
 }
 
 bool

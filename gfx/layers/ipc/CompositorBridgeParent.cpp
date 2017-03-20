@@ -2088,7 +2088,8 @@ CompositorBridgeParent::AllocPTextureParent(const SurfaceDescriptor& aSharedData
                                             const LayersBackend& aLayersBackend,
                                             const TextureFlags& aFlags,
                                             const uint64_t& aId,
-                                            const uint64_t& aSerial)
+                                            const uint64_t& aSerial,
+                                            const uint64_t& aLayerId)
 {
   return TextureHost::CreateIPDLActor(this, aSharedData, aLayersBackend, aFlags, aSerial);
 }

@@ -69,7 +69,8 @@ public:
     const SurfaceDescriptor& aSharedData,
     LayersBackend aLayersBackend,
     TextureFlags aFlags,
-    uint64_t aSerial) = 0;
+    uint64_t aSerial,
+    uint64_t aLayerId) = 0;
 };
 
 } // namespace layers

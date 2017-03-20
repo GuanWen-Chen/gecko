@@ -498,7 +498,8 @@ CrossProcessCompositorBridgeParent::AllocPTextureParent(const SurfaceDescriptor&
                                                         const LayersBackend& aLayersBackend,
                                                         const TextureFlags& aFlags,
                                                         const uint64_t& aId,
-                                                        const uint64_t& aSerial)
+                                                        const uint64_t& aSerial,
+                                                        const uint64_t& aLayerId)
 {
   CompositorBridgeParent::LayerTreeState* state = nullptr;
 

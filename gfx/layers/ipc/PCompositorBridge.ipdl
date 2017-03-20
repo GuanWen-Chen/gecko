@@ -237,7 +237,7 @@ parent:
    */
   async AllPluginsCaptured();
 
-  async PTexture(SurfaceDescriptor aSharedData, LayersBackend aBackend, TextureFlags aTextureFlags, uint64_t id, uint64_t aSerial);
+  async PTexture(SurfaceDescriptor aSharedData, LayersBackend aBackend, TextureFlags aTextureFlags, uint64_t id, uint64_t aSerial, uint64_t aLayerId);
 
   sync SyncWithCompositor();
 

@@ -121,7 +121,8 @@ public:
                                             const LayersBackend& aLayersBackend,
                                             const TextureFlags& aFlags,
                                             const uint64_t& aId,
-                                            const uint64_t& aSerial) override;
+                                            const uint64_t& aSerial,
+                                            const uint64_t& aLayerId = 0) override;
 
   virtual bool DeallocPTextureChild(PTextureChild* actor) override;
 
@@ -130,7 +131,8 @@ public:
   virtual PTextureChild* CreateTexture(const SurfaceDescriptor& aSharedData,
                                        LayersBackend aLayersBackend,
                                        TextureFlags aFlags,
-                                       uint64_t aSerial) override;
+                                       uint64_t aSerial,
+                                       uint64_t aLayerId) override;
 
   virtual void HandleFatalError(const char* aName, const char* aMsg) const override;
 
