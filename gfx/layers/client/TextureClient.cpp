@@ -9,6 +9,7 @@
 #include "gfx2DGlue.h"
 #include "gfxPlatform.h"                // for gfxPlatform
 #include "mozilla/Atomics.h"
+#include "mozilla/dom/TabGroup.h"
 #include "mozilla/ipc/SharedMemory.h"   // for SharedMemory, etc
 #include "mozilla/layers/CompositableForwarder.h"
 #include "mozilla/layers/ISurfaceAllocator.h"
@@ -880,6 +881,19 @@ TextureClient::InitIPDLActor(CompositableForwarder* aForwarder)
         gfxCriticalError() << "Attempt to move a texture to different compositor backend.";
         return false;
       }
+      if (ShadowLayerForwarder* forwarder = aForwarder->AsLayerForwarder()) {
+        uint64_t layersId = forwarder->GetShadowManager()->GetId();
+        TabChild* tabChild = TabChild::GetFrom(layersId);
+
+        // Do the DOM labeling.
+        if (tabChild && layersId != 0) {
+          nsCOMPtr<nsIEventTarget> target =
+            tabChild->TabGroup()->EventTargetFor(TaskCategory::Other);
+          forwarder->GetCompositorBridgeChild()->SetEventTargetForActor(
+            mActor, target);
+          MOZ_ASSERT(mActor->GetActorEventTarget());
+        }
+      }
       mActor->mCompositableForwarder = aForwarder;
     }
     return true;
@@ -891,11 +905,14 @@ TextureClient::InitIPDLActor(CompositableForwarder* aForwarder)
     return false;
   }
 
+  uint64_t layersId = 0;
+  // Get the layers id if the forwarder is a ShadowLayerForwarder.
+  if (ShadowLayerForwarder* forwarder = aForwarder->AsLayerForwarder()) {
+    layersId = forwarder->GetShadowManager()->GetId();
+  }
+
   PTextureChild* actor = aForwarder->GetTextureForwarder()->CreateTexture(
-    desc,
-    aForwarder->GetCompositorBackendType(),
-    GetFlags(),
-    mSerial);
+    desc, aForwarder->GetCompositorBackendType(), GetFlags(), mSerial, layersId);
   if (!actor) {
     gfxCriticalNote << static_cast<int32_t>(desc.type()) << ", "
                     << static_cast<int32_t>(aForwarder->GetCompositorBackendType()) << ", "
