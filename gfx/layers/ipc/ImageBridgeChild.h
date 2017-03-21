@@ -326,7 +326,8 @@ public:
   virtual PTextureChild* CreateTexture(const SurfaceDescriptor& aSharedData,
                                        LayersBackend aLayersBackend,
                                        TextureFlags aFlags,
-                                       uint64_t aSerial) override;
+                                       uint64_t aSerial,
+                                       uint64_t aLayerId = 0) override;
 
   virtual bool IsSameProcess() const override;
 

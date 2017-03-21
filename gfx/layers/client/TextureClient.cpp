@@ -891,11 +891,15 @@ TextureClient::InitIPDLActor(CompositableForwarder* aForwarder)
     return false;
   }
 
+  uint64_t layerId = 0;
+  if (XRE_IsContentProcess() && NS_IsMainThread()) {
+    layerId = static_cast<ShadowLayerForwarder*>(aForwarder)
+                ->GetShadowManager()
+                ->GetId();
+  }
+
   PTextureChild* actor = aForwarder->GetTextureForwarder()->CreateTexture(
-    desc,
-    aForwarder->GetCompositorBackendType(),
-    GetFlags(),
-    mSerial);
+    desc, aForwarder->GetCompositorBackendType(), GetFlags(), mSerial, layerId);
   if (!actor) {
     gfxCriticalNote << static_cast<int32_t>(desc.type()) << ", "
                     << static_cast<int32_t>(aForwarder->GetCompositorBackendType()) << ", "

@@ -18,6 +18,7 @@
 #include "mozilla/layers/APZCTreeManagerChild.h"
 #include "mozilla/layers/LayerTransactionChild.h"
 #include "mozilla/layers/PLayerTransactionChild.h"
+#include "mozilla/layers/PTextureChild.h"
 #include "mozilla/layers/TextureClient.h"// for TextureClient
 #include "mozilla/layers/TextureClientPool.h"// for TextureClientPool
 #include "mozilla/layers/WebRenderBridgeChild.h"
@@ -33,6 +34,7 @@
 #include "nsXULAppAPI.h"                // for XRE_GetIOMessageLoop, etc
 #include "FrameLayerBuilder.h"
 #include "mozilla/dom/TabChild.h"
+#include "mozilla/dom/TabGroup.h"
 #include "mozilla/dom/TabParent.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/Unused.h"
@@ -1022,14 +1024,27 @@ CompositorBridgeChild::GetTileLockAllocator()
   return mSectionAllocator;
 }
 
-
 PTextureChild*
 CompositorBridgeChild::CreateTexture(const SurfaceDescriptor& aSharedData,
                                      LayersBackend aLayersBackend,
                                      TextureFlags aFlags,
-                                     uint64_t aSerial)
+                                     uint64_t aSerial,
+                                     uint64_t aLayerId)
 {
-  return PCompositorBridgeChild::SendPTextureConstructor(aSharedData, aLayersBackend, aFlags, 0 /* FIXME? */, aSerial);
+  PTextureChild* textureChild = AllocPTextureChild(
+    aSharedData, aLayersBackend, aFlags, 0 /* FIXME */, aSerial);
+  TabChild* tabChild = TabChild::GetFrom(aLayerId);
+
+  // Do the DOM labeling.
+  if (tabChild && aLayerId != 0) {
+    nsCOMPtr<nsIEventTarget> target =
+      tabChild->TabGroup()->EventTargetFor(TaskCategory::Other);
+    SetEventTargetForActor(textureChild, target);
+    MOZ_ASSERT(textureChild->GetActorEventTarget());
+  }
+
+  return SendPTextureConstructor(
+    textureChild, aSharedData, aLayersBackend, aFlags, 0 /* FIXME? */, aSerial);
 }
 
 bool
