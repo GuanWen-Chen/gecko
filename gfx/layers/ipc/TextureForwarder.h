@@ -65,11 +65,11 @@ public:
   /**
    * Create a TextureChild/Parent pair as as well as the TextureHost on the parent side.
    */
-  virtual PTextureChild* CreateTexture(
-    const SurfaceDescriptor& aSharedData,
-    LayersBackend aLayersBackend,
-    TextureFlags aFlags,
-    uint64_t aSerial) = 0;
+  virtual PTextureChild* CreateTexture(const SurfaceDescriptor& aSharedData,
+                                       LayersBackend aLayersBackend,
+                                       TextureFlags aFlags,
+                                       uint64_t aSerial,
+                                       nsIEventTarget* aTarget = nullptr) = 0;
 };
 
 } // namespace layers

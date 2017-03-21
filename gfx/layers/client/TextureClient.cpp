@@ -881,6 +881,13 @@ TextureClient::InitIPDLActor(CompositableForwarder* aForwarder)
         gfxCriticalError() << "Attempt to move a texture to different compositor backend.";
         return false;
       }
+      if (ShadowLayerForwarder* forwarder = aForwarder->AsLayerForwarder()) {
+        // Do the DOM labeling.
+        if (nsIEventTarget* target = forwarder->GetEventTarget()) {
+          forwarder->GetCompositorBridgeChild()->ReplaceEventTargetForActor(
+            mActor, target);
+        }
+      }
       mActor->mCompositableForwarder = aForwarder;
     }
     return true;
@@ -892,11 +899,14 @@ TextureClient::InitIPDLActor(CompositableForwarder* aForwarder)
     return false;
   }
 
+  nsIEventTarget* target;
+  // Get the layers id if the forwarder is a ShadowLayerForwarder.
+  if (ShadowLayerForwarder* forwarder = aForwarder->AsLayerForwarder()) {
+    target = forwarder->GetEventTarget();
+  }
+
   PTextureChild* actor = aForwarder->GetTextureForwarder()->CreateTexture(
-    desc,
-    aForwarder->GetCompositorBackendType(),
-    GetFlags(),
-    mSerial);
+    desc, aForwarder->GetCompositorBackendType(), GetFlags(), mSerial, target);
   if (!actor) {
     gfxCriticalNote << static_cast<int32_t>(desc.type()) << ", "
                     << static_cast<int32_t>(aForwarder->GetCompositorBackendType()) << ", "

@@ -323,10 +323,12 @@ public:
    */
   virtual bool DeallocShmem(mozilla::ipc::Shmem& aShmem) override;
 
-  virtual PTextureChild* CreateTexture(const SurfaceDescriptor& aSharedData,
-                                       LayersBackend aLayersBackend,
-                                       TextureFlags aFlags,
-                                       uint64_t aSerial) override;
+  virtual PTextureChild* CreateTexture(
+    const SurfaceDescriptor& aSharedData,
+    LayersBackend aLayersBackend,
+    TextureFlags aFlags,
+    uint64_t aSerial,
+    nsIEventTarget* aTarget = nullptr) override;
 
   virtual bool IsSameProcess() const override;
 

@@ -19,6 +19,7 @@
 #include "mozilla/layers/APZCTreeManagerChild.h"
 #include "mozilla/layers/LayerTransactionChild.h"
 #include "mozilla/layers/PLayerTransactionChild.h"
+#include "mozilla/layers/PTextureChild.h"
 #include "mozilla/layers/TextureClient.h"// for TextureClient
 #include "mozilla/layers/TextureClientPool.h"// for TextureClientPool
 #include "mozilla/layers/WebRenderBridgeChild.h"
@@ -1050,14 +1051,23 @@ CompositorBridgeChild::GetTileLockAllocator()
   return mSectionAllocator;
 }
 
-
 PTextureChild*
 CompositorBridgeChild::CreateTexture(const SurfaceDescriptor& aSharedData,
                                      LayersBackend aLayersBackend,
                                      TextureFlags aFlags,
-                                     uint64_t aSerial)
+                                     uint64_t aSerial,
+                                     nsIEventTarget* aTarget)
 {
-  return PCompositorBridgeChild::SendPTextureConstructor(aSharedData, aLayersBackend, aFlags, 0 /* FIXME? */, aSerial);
+  PTextureChild* textureChild = AllocPTextureChild(
+    aSharedData, aLayersBackend, aFlags, 0 /* FIXME */, aSerial);
+
+  // Do the DOM labeling.
+  if (aTarget) {
+    SetEventTargetForActor(textureChild, aTarget);
+  }
+
+  return SendPTextureConstructor(
+    textureChild, aSharedData, aLayersBackend, aFlags, 0 /* FIXME? */, aSerial);
 }
 
 bool

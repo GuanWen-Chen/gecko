@@ -1044,7 +1044,8 @@ PTextureChild*
 ImageBridgeChild::CreateTexture(const SurfaceDescriptor& aSharedData,
                                 LayersBackend aLayersBackend,
                                 TextureFlags aFlags,
-                                uint64_t aSerial)
+                                uint64_t aSerial,
+                                nsIEventTarget* aTarget)
 {
   MOZ_ASSERT(CanSend());
   return SendPTextureConstructor(aSharedData, aLayersBackend, aFlags, aSerial);
