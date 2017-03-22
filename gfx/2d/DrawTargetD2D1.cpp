@@ -1245,8 +1245,8 @@ DrawTargetD2D1::ShouldClipTemporarySurfaceDrawing(CompositionOp aOp,
                                                   const Pattern& aPattern,
                                                   bool aClipIsComplex)
 {
-  bool patternSupported = IsPatternSupportedByD2D(aPattern);
-  return patternSupported && !CurrentLayer().mIsOpaque && D2DSupportsCompositeMode(aOp) &&
+ /* bool patternSupported = IsPatternSupportedByD2D(aPattern);*/
+  return /*patternSupported && */!CurrentLayer().mIsOpaque && D2DSupportsCompositeMode(aOp) &&
          IsOperatorBoundByMask(aOp) && aClipIsComplex;
 }
 
