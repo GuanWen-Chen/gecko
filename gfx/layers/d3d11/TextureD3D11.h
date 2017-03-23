@@ -421,6 +421,7 @@ public:
 
   void RegisterTexture(ID3D11Texture2D* aTexture);
 
+  bool mValid;
 private:
   bool Init();
 
@@ -435,7 +436,7 @@ private:
    * expired handle with device in stable state. We set this flag to avoid
    * this situation.
    */
-  bool mValid;
+
 };
 
 inline uint32_t GetMaxTextureSizeForFeatureLevel(D3D_FEATURE_LEVEL aFeatureLevel)

@@ -363,6 +363,7 @@ ClientLayerManager::EndTransactionInternal(DrawPaintedLayerCallback aCallback,
       root->RenderLayer();
     }
   } else {
+	//FrameLayerBuilder::InvalidateAllLayers(this);
     gfxCriticalNote << "LayerManager::EndTransaction skip RenderLayer().";
   }
 
@@ -385,7 +386,7 @@ ClientLayerManager::EndTransactionInternal(DrawPaintedLayerCallback aCallback,
   NS_ASSERTION(!aCallback || !mTransactionIncomplete,
                "If callback is not null, transaction must be complete");
 
-  if (gfxPlatform::GetPlatform()->DidRenderingDeviceReset()) {
+  if (gfxPlatform::GetPlatform()->DidRenderingDeviceReset()/* || !syncObjCheck*/) {
     FrameLayerBuilder::InvalidateAllLayers(this);
   }
 

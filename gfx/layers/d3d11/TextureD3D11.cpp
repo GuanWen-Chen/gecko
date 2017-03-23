@@ -1206,6 +1206,7 @@ SyncObjectD3D11::SyncObjectD3D11(SyncHandle aSyncHandle, ID3D11Device* aDevice)
 {
   if (!aDevice) {
     mD3D11Device = DeviceManagerDx::Get()->GetContentDevice();
+	MOZ_ASSERT(!XRE_IsContentProcess() || mD3D11Device);
     return;
   }
 

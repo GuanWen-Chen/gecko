@@ -12,6 +12,7 @@
 #include "base/message_loop.h"          // for MessageLoop
 #include "base/task.h"                  // for NewRunnableMethod, etc
 #include "gfxPrefs.h"
+#include "mozilla/gfx/DeviceManagerDx.h"
 #include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/APZChild.h"
 #include "mozilla/layers/IAPZCTreeManager.h"
@@ -381,7 +382,7 @@ CompositorBridgeChild::RecvCompositorUpdated(const uint64_t& aLayersId,
 
       // If we still get device reset here, something must wrong when creating
       // d3d11 devices.
-      if (gfxPlatform::GetPlatform()->DidRenderingDeviceReset()) {
+      if (gfxPlatform::GetPlatform()->DidRenderingDeviceReset() && !DeviceManagerDx::Get()->GetContentDevice()) {
         gfxCriticalError() << "Unexpected reset device processing when \
                                updating compositor.";
       }
