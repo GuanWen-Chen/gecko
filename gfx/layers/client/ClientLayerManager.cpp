@@ -10,6 +10,7 @@
 #include "mozilla/Hal.h"
 #include "mozilla/dom/ScreenOrientation.h"  // for ScreenOrientation
 #include "mozilla/dom/TabChild.h"       // for TabChild
+#include "mozilla/dom/TabGroup.h"
 #include "mozilla/hal_sandbox/PHal.h"   // for ScreenConfiguration
 #include "mozilla/layers/CompositableClient.h"
 #include "mozilla/layers/CompositorBridgeChild.h" // for CompositorBridgeChild
@@ -147,7 +148,8 @@ ClientLayerManager::Destroy()
       [allocator, id] () -> void {
       allocator->NotifyTransactionCompleted(id);
     });
-    NS_DispatchToMainThread(task.forget());
+    TabChild::GetFrom(mId)->TabGroup()->Dispatch(
+      "ClientLayerManager::Destroy", TaskCategory::Other, task.forget());
   }
 
   // Forget the widget pointer in case we outlive our owning widget.
