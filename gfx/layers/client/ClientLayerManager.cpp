@@ -10,6 +10,7 @@
 #include "mozilla/Hal.h"
 #include "mozilla/dom/ScreenOrientation.h"  // for ScreenOrientation
 #include "mozilla/dom/TabChild.h"       // for TabChild
+#include "mozilla/dom/TabGroup.h"       // for TabGroup
 #include "mozilla/hal_sandbox/PHal.h"   // for ScreenConfiguration
 #include "mozilla/layers/CompositableClient.h"
 #include "mozilla/layers/CompositorBridgeChild.h" // for CompositorBridgeChild
@@ -107,6 +108,11 @@ ClientLayerManager::ClientLayerManager(nsIWidget* aWidget)
 
   if (XRE_IsContentProcess()) {
     mDeviceResetSequenceNumber = CompositorBridgeChild::Get()->DeviceResetSequenceNumber();
+    if (mWidget) {
+      if (TabChild* tabChild = mWidget->GetOwningTabChild()) {
+        mTabGroup = tabChild->TabGroup();
+      }
+    }
   }
 }
 
@@ -152,6 +158,12 @@ ClientLayerManager::Destroy()
 
   // Forget the widget pointer in case we outlive our owning widget.
   mWidget = nullptr;
+}
+
+TabGroup*
+ClientLayerManager::GetTabGroup()
+{
+  return mTabGroup;
 }
 
 int32_t

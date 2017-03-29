@@ -19,6 +19,8 @@
 #include "ipc/IPCMessageUtils.h"        // for gfxContentType, null_t
 #include "IPDLActor.h"
 #include "mozilla/Assertions.h"         // for MOZ_ASSERT, etc
+#include "mozilla/dom/TabChild.h"
+#include "mozilla/dom/TabGroup.h"
 #include "mozilla/gfx/Point.h"          // for IntSize
 #include "mozilla/layers/CompositableClient.h"  // for CompositableClient, etc
 #include "mozilla/layers/CompositorBridgeChild.h"
@@ -215,19 +217,33 @@ ShadowLayerForwarder::~ShadowLayerForwarder()
 {
   MOZ_ASSERT(mTxn->Finished(), "unfinished transaction?");
   delete mTxn;
+  dom::TabGroup* tabGroup = mClientLayerManager->GetTabGroup();
   if (mShadowManager) {
     mShadowManager->SetForwarder(nullptr);
     if (NS_IsMainThread()) {
       mShadowManager->Destroy();
     } else {
-      NS_DispatchToMainThread(
-        NewRunnableMethod(mShadowManager, &LayerTransactionChild::Destroy));
+      if (tabGroup) {
+        tabGroup->Dispatch("LayerTransactionChild::Destroy",
+                           TaskCategory::Other,
+                           NewRunnableMethod(mShadowManager,
+                                             &LayerTransactionChild::Destroy));
+      } else {
+        NS_DispatchToMainThread(
+          NewRunnableMethod(mShadowManager, &LayerTransactionChild::Destroy));
+      }
     }
   }
 
   if (!NS_IsMainThread()) {
-    NS_DispatchToMainThread(
-      new ReleaseOnMainThreadTask<ActiveResourceTracker>(mActiveResourceTracker));
+    RefPtr<ReleaseOnMainThreadTask<ActiveResourceTracker>> event =
+      new ReleaseOnMainThreadTask<ActiveResourceTracker>(mActiveResourceTracker);
+    if (tabGroup) {
+      tabGroup->Dispatch("ActiveResourceTracker::!ActiveResourceTracker",
+                         TaskCategory::Other, event.forget());
+    } else {
+      NS_DispatchToMainThread(event);
+    }
   }
 }
 

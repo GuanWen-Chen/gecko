@@ -31,6 +31,8 @@ class nsDisplayListBuilder;
 namespace mozilla {
 namespace layers {
 
+using dom::TabGroup;
+
 class ClientPaintedLayer;
 class CompositorBridgeChild;
 class ImageLayer;
@@ -63,6 +65,8 @@ public:
   {
     return this;
   }
+
+  TabGroup* GetTabGroup();
 
   virtual int32_t GetMaxTextureSize() const override;
 
@@ -342,6 +346,8 @@ private:
   nsTArray<DidCompositeObserver*> mDidCompositeObservers;
 
   RefPtr<MemoryPressureObserver> mMemoryPressureObserver;
+
+  RefPtr<dom::TabGroup> mTabGroup;
 };
 
 class ClientLayer : public ShadowableLayer
