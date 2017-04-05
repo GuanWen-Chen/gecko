@@ -172,7 +172,7 @@ DeviceManagerDx::CreateContentDevices()
   // GPU process, or the same process if using in-process compositing.
   MOZ_ASSERT(mDeviceStatus);
 
-  if (CreateContentDevice() == FeatureStatus::CrashedInHandler) {
+  if (CreateContentDevice() != FeatureStatus::Available) {
     DisableD3D11AfterCrash();
   }
 }

@@ -117,7 +117,7 @@ child:
   async UpdateChildKeyedScalars(KeyedScalarAction[] actions);
   async RecordChildEvents(ChildEventData[] events);
 
-  async NotifyDeviceReset();
+  async NotifyDeviceReset(GPUDeviceData status);
 
   async AddMemoryReport(MemoryReport aReport);
   async FinishMemoryReport(uint32_t aGeneration);
