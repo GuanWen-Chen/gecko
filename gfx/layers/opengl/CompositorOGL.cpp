@@ -30,6 +30,7 @@
 #include "mozilla/layers/TextureHost.h"  // for TextureSource, etc
 #include "mozilla/layers/TextureHostOGL.h"  // for TextureSourceOGL, etc
 #include "mozilla/mozalloc.h"           // for operator delete, etc
+#include "mozilla/Telemetry.h"
 #include "nsAppRunner.h"
 #include "nsAString.h"
 #include "nsIConsoleService.h"          // for nsIConsoleService, etc
@@ -187,6 +188,8 @@ CompositorOGL::CleanupResources()
     return;
   }
 
+  TimeStamp start = TimeStamp::Now();
+  uint32_t programNum = mPrograms.size();
   for (std::map<ShaderConfigOGL, ShaderProgramOGL *>::iterator iter = mPrograms.begin();
        iter != mPrograms.end();
        iter++) {
@@ -194,6 +197,25 @@ CompositorOGL::CleanupResources()
   }
   mPrograms.clear();
 
+  uint32_t costMs = round((TimeStamp::Now() - start).ToMilliseconds());
+  nsCString key;
+  switch(programNum) {
+    case 0 ... 10:
+      key = "PROGRAM_NUM_1_TO_10";
+      break;
+    case 11 ... 50:
+      key = "PROGRAM_NUM_11_TO_50";
+      break;
+    case 51 ... 100:
+      key = "PROGRAM_NUM_51_TO_100";
+      break;
+    case 101 ... 500:
+      key = "PROGRAM_NUM_101_TO_500";
+      break;
+    default:
+      key = "PROGRAM_NUM_ABOVE_501";
+  }
+  Telemetry::Accumulate(Telemetry::SHADER_DELECTION_MS, key, costMs);
   ctx->fBindFramebuffer(LOCAL_GL_FRAMEBUFFER, 0);
 
   if (mQuadVBO) {
