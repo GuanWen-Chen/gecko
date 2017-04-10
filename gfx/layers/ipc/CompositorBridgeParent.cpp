@@ -1382,9 +1382,11 @@ CompositorBridgeParent::InitializeLayerManager(const nsTArray<LayersBackend>& aB
 RefPtr<Compositor>
 CompositorBridgeParent::NewCompositor(const nsTArray<LayersBackend>& aBackendHints)
 {
+  printf_stderr("GUAN create compositor!!!!!!!!!!!!!!!!!!!!!!!\n");
   for (size_t i = 0; i < aBackendHints.Length(); ++i) {
     RefPtr<Compositor> compositor;
     if (aBackendHints[i] == LayersBackend::LAYERS_OPENGL) {
+      printf_stderr("GUAN OGL!!!!!!!!!!!!!!!!!!!!!!!\n");
       compositor = new CompositorOGL(this,
                                      mWidget,
                                      mEGLSurfaceSize.width,
@@ -1392,11 +1394,13 @@ CompositorBridgeParent::NewCompositor(const nsTArray<LayersBackend>& aBackendHin
                                      mUseExternalSurfaceSize);
     } else if (aBackendHints[i] == LayersBackend::LAYERS_BASIC) {
 #ifdef MOZ_WIDGET_GTK
+      printf_stderr("GUAN X11 !!!!!!!!!!!!!!!!!!!!!!!\n");
       if (gfxVars::UseXRender()) {
         compositor = new X11BasicCompositor(this, mWidget);
       } else
 #endif
       {
+        printf_stderr("GUAN basic !!!!!!!!!!!!!!!!!!!!!!!\n");
         compositor = new BasicCompositor(this, mWidget);
       }
 #ifdef XP_WIN
