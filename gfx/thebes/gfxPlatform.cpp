@@ -762,8 +762,23 @@ gfxPlatform::Init()
                                                     SurfaceFormat::B8G8R8A8);
     if (!gPlatform->mScreenReferenceDrawTarget ||
         !gPlatform->mScreenReferenceDrawTarget->IsValid()) {
-      MOZ_CRASH("Could not initialize mScreenReferenceDrawTarget");
+      if (gPlatform->DidRenderingDeviceReset()) {
+        gfxCriticalNote << "Could not initialize mScreenReferenceDrawTarget";
+      }
+      // Recreate devices and try again.
+      gPlatform->CompositorUpdated();
+      if (!gPlatform->mScreenReferenceDrawTarget ||
+          !gPlatform->mScreenReferenceDrawTarget->IsValid()) {
+        // Fall back to software solution if we still get fail.
+        gfxConfig::SetFailed(Feature::DIRECT2D, FeatureStatus::Failed,
+          "Failed to create mScreenReferenceDrawTarget.");
+        gPlatform->mScreenReferenceDrawTarget =
+          gPlatform->CreateOffscreenContentDrawTarget(
+            IntSize(1, 1), SurfaceFormat::B8G8R8A8, true);
+      }
     }
+	MOZ_RELEASE_ASSERT(gPlatform->mScreenReferenceDrawTarget &&
+                       gPlatform->mScreenReferenceDrawTarget->IsValid());
 
     rv = gfxFontCache::Init();
     if (NS_FAILED(rv)) {
@@ -1518,10 +1533,13 @@ gfxPlatform::CreateOffscreenCanvasDrawTarget(const IntSize& aSize, SurfaceFormat
 }
 
 already_AddRefed<DrawTarget>
-gfxPlatform::CreateOffscreenContentDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
+gfxPlatform::CreateOffscreenContentDrawTarget(const IntSize& aSize,
+                                              SurfaceFormat aFormat,
+                                              bool aFallback)
 {
-  NS_ASSERTION(mContentBackend != BackendType::NONE, "No backend.");
-  return CreateDrawTargetForBackend(mContentBackend, aSize, aFormat);
+  BackendType backend = (aFallback) ? mSoftwareBackend : mContentBackend;
+  NS_ASSERTION(backend != BackendType::NONE, "No backend.");
+  return CreateDrawTargetForBackend(backend, aSize, aFormat);
 }
 
 already_AddRefed<DrawTarget>
