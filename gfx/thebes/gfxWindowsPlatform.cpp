@@ -69,7 +69,7 @@
 #include "gfxConfig.h"
 #include "VsyncSource.h"
 #include "DriverCrashGuard.h"
-#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/ContentChild.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
 #include "mozilla/layers/DeviceAttachmentsD3D11.h"
 #include "D3D11Checks.h"
@@ -926,6 +926,30 @@ InvalidateWindowForDeviceReset(HWND aWnd, LPARAM aMsg)
     return TRUE;
 }
 
+static bool
+DidParentDeviceReset()
+{
+  dom::ContentChild* cc = dom::ContentChild::GetSingleton();
+  DeviceManagerDx* dm = DeviceManagerDx::Get();
+
+  ContentDeviceData compositor;
+  cc->SendGetGraphicsDeviceInitData(&compositor);
+
+  // The parent is not using D3D11 anymore, so it probably reset.
+  if (!IsFeatureStatusSuccess(compositor.prefs().d3d11Compositing())) {
+    return true;
+  }
+
+  // Check that the D3D11 device sequence numbers match.
+  D3D11DeviceStatus status;
+  dm->ExportDeviceInfo(&status);
+  if (compositor.d3d11().sequenceNumber() != status.sequenceNumber()) {
+    return true;
+  }
+
+  return false;
+}
+
 void
 gfxWindowsPlatform::SchedulePaintIfDeviceReset()
 {
@@ -938,12 +962,37 @@ gfxWindowsPlatform::SchedulePaintIfDeviceReset()
 
   gfxCriticalNote << "(gfxWindowsPlatform) Detected device reset: " << (int)resetReason;
 
-  // Trigger an ::OnPaint for each window.
-  ::EnumThreadWindows(GetCurrentThreadId(),
-                      InvalidateWindowForDeviceReset,
-                      0);
+  if (XRE_IsParentProcess()) {
+    // Trigger an ::OnPaint for each window.
+    ::EnumThreadWindows(GetCurrentThreadId(),
+                        InvalidateWindowForDeviceReset,
+                        0);
+  } else {
+    NS_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
+      gfxWindowsPlatform::GetPlatform()->CheckForContentOnlyDeviceReset();
+    }));
+  }
 
-  gfxCriticalNote << "(gfxWindowsPlatform) Finished device reset.";
+  gfxCriticalNote << "(gfxWindowsPlatform) scheduled device update.";
+}
+
+void
+gfxWindowsPlatform::CheckForContentOnlyDeviceReset()
+{
+  if (!DidRenderingDeviceReset()) {
+    return;
+  }
+
+  // The parent process doesn't know about the reset yet, or the reset is
+  // local to our device.
+  if (!DidParentDeviceReset()) {
+    return;
+  }
+
+  UpdateRenderMode();
+
+  dom::ContentChild* cc = dom::ContentChild::GetSingleton();
+  cc->RecvReinitRenderingForDeviceReset();
 }
 
 void

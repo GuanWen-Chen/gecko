@@ -308,6 +308,20 @@ DeviceManagerDx::CreateCompositorDeviceHelper(
   return true;
 }
 
+// Note that it's enough for us to just use a counter for a unique ID,
+// even though the counter isn't synchronized between processes. If we
+// start in the GPU process and wind up in the parent process, the
+// whole graphics stack is blown away anyway. But just in case, we
+// make gpu process IDs negative and parent process IDs positive.
+static inline int32_t
+GetNextDeviceCounter()
+{
+  static int32_t sDeviceCounter = 0;
+  return XRE_IsGPUProcess()
+         ? --sDeviceCounter
+         : ++sDeviceCounter;
+}
+
 void
 DeviceManagerDx::CreateCompositorDevice(FeatureState& d3d11)
 {
@@ -365,15 +379,18 @@ DeviceManagerDx::CreateCompositorDevice(FeatureState& d3d11)
     D3D11Checks::WarnOnAdapterMismatch(device);
   }
 
-  int featureLevel = device->GetFeatureLevel();
+  uint32_t featureLevel = device->GetFeatureLevel();
   {
     MutexAutoLock lock(mDeviceLock);
     mCompositorDevice = device;
+
+    int32_t sequenceNumber = GetNextDeviceCounter();
     mDeviceStatus = Some(D3D11DeviceStatus(
       false,
       textureSharingWorks,
       featureLevel,
-      DxgiAdapterDesc::From(desc)));
+      DxgiAdapterDesc::From(desc),
+      sequenceNumber));
   }
   mCompositorDevice->SetExceptionMode(0);
 }
@@ -463,11 +480,14 @@ DeviceManagerDx::CreateWARPCompositorDevice()
   {
     MutexAutoLock lock(mDeviceLock);
     mCompositorDevice = device;
+
+    int32_t sequenceNumber = GetNextDeviceCounter();
     mDeviceStatus = Some(D3D11DeviceStatus(
       true,
       textureSharingWorks,
       featureLevel,
-      nullAdapter));
+      nullAdapter,
+      sequenceNumber));
   }
   mCompositorDevice->SetExceptionMode(0);
 
