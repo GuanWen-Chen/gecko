@@ -41,7 +41,7 @@ ImageLayerComposite::ImageLayerComposite(LayerManagerComposite* aManager)
 ImageLayerComposite::~ImageLayerComposite()
 {
   MOZ_COUNT_DTOR(ImageLayerComposite);
-  MOZ_ASSERT(mDestroyed);
+//  MOZ_ASSERT(mDestroyed);
 
   CleanupResources();
 }

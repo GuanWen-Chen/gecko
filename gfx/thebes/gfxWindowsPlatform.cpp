@@ -71,6 +71,7 @@
 #include "DriverCrashGuard.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
+#include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/layers/DeviceAttachmentsD3D11.h"
 #include "D3D11Checks.h"
 
@@ -962,16 +963,26 @@ gfxWindowsPlatform::SchedulePaintIfDeviceReset()
 
   gfxCriticalNote << "(gfxWindowsPlatform) Detected device reset: " << (int)resetReason;
 
-  if (XRE_IsParentProcess()) {
+  if (XRE_IsParentProcess() && !GPUProcessManager::Get()->GetGPUChild()) {
     // Trigger an ::OnPaint for each window.
     ::EnumThreadWindows(GetCurrentThreadId(),
                         InvalidateWindowForDeviceReset,
                         0);
-  } else {
+  }
+  /*} else {
     NS_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
       gfxWindowsPlatform::GetPlatform()->CheckForContentOnlyDeviceReset();
     }));
+  }*/
+  if (XRE_IsContentProcess() || (XRE_IsParentProcess() && GPUProcessManager::Get()->GetGPUChild())) {
+    NS_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
+      gfxWindowsPlatform::GetPlatform()->CheckForContentOnlyDeviceReset();
+    }));
+	 /* if (NS_IsMainThread()) {
+		  gfxWindowsPlatform::GetPlatform()->CheckForContentOnlyDeviceReset();
+	  }*/
   }
+
 
   gfxCriticalNote << "(gfxWindowsPlatform) scheduled device update.";
 }
@@ -982,10 +993,10 @@ gfxWindowsPlatform::CheckForContentOnlyDeviceReset()
   if (!DidRenderingDeviceReset()) {
     return;
   }
-
+  //return;
   // The parent process doesn't know about the reset yet, or the reset is
   // local to our device.
-  if (!DidParentDeviceReset()) {
+  if (DidParentDeviceReset()) {
     return;
   }
 

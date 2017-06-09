@@ -4675,6 +4675,7 @@ ContentParent::RecvShutdownProfile(const nsCString& aProfile)
 mozilla::ipc::IPCResult
 ContentParent::RecvGetGraphicsDeviceInitData(ContentDeviceData* aOut)
 {
+  Preferences::SetBool("gfx.testing.content.device.reset", false);
   gfxPlatform::GetPlatform()->BuildContentDeviceData(aOut);
   return IPC_OK();
 }

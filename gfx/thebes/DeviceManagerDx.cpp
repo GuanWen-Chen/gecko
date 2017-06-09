@@ -11,6 +11,7 @@
 #include "gfxWindowsPlatform.h"
 #include "mozilla/D3DMessageUtils.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/WindowsVersion.h"
 #include "mozilla/gfx/GraphicsMessages.h"
 #include "mozilla/gfx/Logging.h"
@@ -163,7 +164,7 @@ DeviceManagerDx::ExportDeviceInfo(D3D11DeviceStatus* aOut)
   // Even though the parent process might not own the compositor, we still
   // populate DeviceManagerDx with device statistics (for simplicity).
   // That means it still gets queried for compositor information.
-  MOZ_ASSERT(XRE_IsParentProcess() || XRE_GetProcessType() == GeckoProcessType_GPU);
+  //MOZ_ASSERT(XRE_IsParentProcess() || XRE_GetProcessType() == GeckoProcessType_GPU);
 
   if (mDeviceStatus) {
     *aOut = mDeviceStatus.value();
@@ -728,6 +729,15 @@ bool
 DeviceManagerDx::HasDeviceReset(DeviceResetReason* aOutReason)
 {
   MutexAutoLock lock(mDeviceLock);
+
+  if (XRE_IsContentProcess() && Preferences::GetBool("gfx.testing.content.device.reset")) {
+	  mDeviceResetReason = Some(DeviceResetReason::FORCED_RESET);
+	  Preferences::SetBool("gfx.testing.content.device.reset", false);
+	  if (aOutReason) {
+		  *aOutReason = mDeviceResetReason.value();
+	  }
+	  return true;
+  }
 
   if (mDeviceResetReason) {
     if (aOutReason) {

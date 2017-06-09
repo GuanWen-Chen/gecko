@@ -1445,6 +1445,7 @@ CompositorBridgeParent::AllocPLayerTransactionParent(const nsTArray<LayersBacken
                                                      const uint64_t& aId)
 {
   MOZ_ASSERT(aId == 0);
+  MOZ_ASSERT(!XRE_IsContentProcess());
 
   InitializeLayerManager(aBackendHints);
 

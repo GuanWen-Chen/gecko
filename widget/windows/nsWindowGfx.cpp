@@ -166,6 +166,7 @@ void nsWindow::ForcePresent()
 
 bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
 {
+
   // We never have reentrant paint events, except when we're running our RPC
   // windows event spin loop. If we don't trap for this, we'll try to paint,
   // but view manager will refuse to paint the surface, resulting is black
@@ -175,6 +176,8 @@ bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
 
   DeviceResetReason resetReason = DeviceResetReason::OK;
   if (gfxWindowsPlatform::GetPlatform()->DidRenderingDeviceReset(&resetReason)) {
+	  /*MOZ_ASSERT(XRE_IsContentProcess());
+	  MOZ_ASSERT(XRE_IsGPUProcess());*/
     gfxCriticalNote << "(nsWindow) Detected device reset: " << (int)resetReason;
 
     gfxWindowsPlatform::GetPlatform()->UpdateRenderMode();

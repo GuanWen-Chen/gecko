@@ -19,7 +19,7 @@
  *  - The first character after a period must be alphabetic.
  *  - Computed values (e.g. 50 * 1024) don't work.
  */
-
+pref("gfx.testing.content.device.reset", false);
 pref("keyword.enabled", false);
 pref("general.useragent.locale", "chrome://global/locale/intl.properties");
 pref("general.useragent.compatMode.firefox", false);
