@@ -4797,6 +4797,11 @@ ContentParent::RecvShutdownProfile(const nsCString& aProfile)
 mozilla::ipc::IPCResult
 ContentParent::RecvGetGraphicsDeviceInitData(ContentDeviceData* aOut)
 {
+	Preferences::SetBool("gfx.contentonly.tdr", false);
+	if (Preferences::GetBool("gfx.contentonly.tdr")) {
+		MOZ_CRASH("XXX");
+	}
+
   gfxPlatform::GetPlatform()->BuildContentDeviceData(aOut);
   return IPC_OK();
 }

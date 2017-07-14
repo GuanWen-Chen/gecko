@@ -888,6 +888,10 @@ gfxWindowsPlatform::SchedulePaintIfDeviceReset()
 {
   AUTO_PROFILER_LABEL("gfxWindowsPlatform::SchedulePaintIfDeviceReset",
                       GRAPHICS);
+  if (Preferences::GetBool("gfx.contentonly.tdr") && XRE_IsContentProcess()) {
+   Preferences::SetBool("gfx.contentonly.tdr", false);
+   DeviceManagerDx::Get()->ForceDeviceReset(ForcedDeviceResetReason::OPENSHAREDHANDLE);
+  }
 
   DeviceResetReason resetReason = DeviceResetReason::OK;
   if (!DidRenderingDeviceReset(&resetReason)) {
@@ -916,6 +920,7 @@ gfxWindowsPlatform::SchedulePaintIfDeviceReset()
 void
 gfxWindowsPlatform::CheckForContentOnlyDeviceReset()
 {
+
   if (!DidRenderingDeviceReset()) {
     return;
   }
