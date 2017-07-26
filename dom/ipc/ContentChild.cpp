@@ -1223,6 +1223,8 @@ ContentChild::RecvReinitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor
     return IPC_FAIL_NO_REASON(this);
   }
 
+  gfxPlatform::GetPlatform()->CompositorUpdated();
+
   // Establish new PLayerTransactions.
   for (const auto& tabChild : tabs) {
     if (tabChild->LayersId()) {
