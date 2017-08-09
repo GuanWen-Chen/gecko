@@ -613,9 +613,8 @@ nsDisplayBullet::GetLayerState(nsDisplayListBuilder* aBuilder,
   if (!ShouldUseAdvancedLayer(aManager, gfxPrefs::LayersAllowBulletLayers)) {
     return LAYER_NONE;
   }
-
   RefPtr<gfxContext> screenRefCtx =
-    gfxContext::CreateOrNull(gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget());
+    gfxContext::CreateOrNull(gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget().get());
 
   Maybe<BulletRenderer> br = static_cast<nsBulletFrame*>(mFrame)->
     CreateBulletRenderer(*screenRefCtx, ToReferenceFrame());

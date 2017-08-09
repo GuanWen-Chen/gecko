@@ -763,7 +763,12 @@ gfxPlatform::Init()
                                                     SurfaceFormat::B8G8R8A8);
     if (!gPlatform->mScreenReferenceDrawTarget ||
         !gPlatform->mScreenReferenceDrawTarget->IsValid()) {
-      MOZ_CRASH("Could not initialize mScreenReferenceDrawTarget");
+      // If TDR is detected, create a draw target with software backend
+      // and it should be replaced later when the process gets the device
+      // reset notification.
+      if (!gPlatform->DidRenderingDeviceReset()) {
+        gfxCriticalError() << "Could not initialize mScreenReferenceDrawTarget";
+      }
     }
 
     rv = gfxFontCache::Init();
@@ -1125,7 +1130,7 @@ gfxPlatform::ClearSourceSurfaceForSurface(gfxASurface *aSurface)
 }
 
 /* static */ already_AddRefed<SourceSurface>
-gfxPlatform::GetSourceSurfaceForSurface(DrawTarget *aTarget,
+gfxPlatform::GetSourceSurfaceForSurface(RefPtr<DrawTarget> aTarget,
                                         gfxASurface *aSurface,
                                         bool aIsPlugin)
 {
@@ -1519,10 +1524,13 @@ gfxPlatform::CreateOffscreenCanvasDrawTarget(const IntSize& aSize, SurfaceFormat
 }
 
 already_AddRefed<DrawTarget>
-gfxPlatform::CreateOffscreenContentDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
+gfxPlatform::CreateOffscreenContentDrawTarget(const IntSize& aSize,
+                                              SurfaceFormat aFormat,
+                                              bool aFallback)
 {
-  NS_ASSERTION(mContentBackend != BackendType::NONE, "No backend.");
-  return CreateDrawTargetForBackend(mContentBackend, aSize, aFormat);
+  BackendType backend = (aFallback) ? mSoftwareBackend : mContentBackend;
+  NS_ASSERTION(backend != BackendType::NONE, "No backend.");
+  return CreateDrawTargetForBackend(backend, aSize, aFormat);
 }
 
 already_AddRefed<DrawTarget>
@@ -2197,6 +2205,12 @@ gfxPlatform::GetLog(eGfxLog aWhichLog)
 
     MOZ_ASSERT_UNREACHABLE("Unexpected log type");
     return nullptr;
+}
+
+RefPtr<mozilla::gfx::DrawTarget>
+gfxPlatform::ScreenReferenceDrawTarget()
+{
+  return (mScreenReferenceDrawTarget)? mScreenReferenceDrawTarget: gPlatform->CreateOffscreenContentDrawTarget(IntSize(1, 1), SurfaceFormat::B8G8R8A8, true);
 }
 
 mozilla::gfx::SurfaceFormat

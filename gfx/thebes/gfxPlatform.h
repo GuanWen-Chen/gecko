@@ -230,7 +230,7 @@ public:
      * specifically because it's used for a plugin. This is mostly for Skia.
      */
     static already_AddRefed<SourceSurface>
-      GetSourceSurfaceForSurface(mozilla::gfx::DrawTarget *aTarget,
+      GetSourceSurfaceForSurface(RefPtr<mozilla::gfx::DrawTarget> aTarget,
                                  gfxASurface *aSurface,
                                  bool aIsPlugin = false);
 
@@ -243,7 +243,10 @@ public:
       GetScaledFontForFont(mozilla::gfx::DrawTarget* aTarget, gfxFont *aFont);
 
     already_AddRefed<DrawTarget>
-      CreateOffscreenContentDrawTarget(const mozilla::gfx::IntSize& aSize, mozilla::gfx::SurfaceFormat aFormat);
+      CreateOffscreenContentDrawTarget(
+        const mozilla::gfx::IntSize& aSize,
+        mozilla::gfx::SurfaceFormat aFormat,
+        bool aFallback = false);
 
     already_AddRefed<DrawTarget>
       CreateOffscreenCanvasDrawTarget(const mozilla::gfx::IntSize& aSize, mozilla::gfx::SurfaceFormat aFormat);
@@ -572,7 +575,7 @@ public:
      * it would measure if rendered on-screen.  Guaranteed to return a
      * non-null and valid DrawTarget.
      */
-    mozilla::gfx::DrawTarget* ScreenReferenceDrawTarget() { return mScreenReferenceDrawTarget; }
+	RefPtr<mozilla::gfx::DrawTarget> ScreenReferenceDrawTarget();
 
     virtual mozilla::gfx::SurfaceFormat Optimal2DFormatForContent(gfxContentType aContent);
 
