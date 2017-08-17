@@ -344,7 +344,7 @@ protected:
 
   RefPtr<ID3D11Device> GetDevice();
 
-  bool OpenSharedHandle();
+  bool EnsureTexture();
 
   RefPtr<ID3D11Device> mDevice;
   RefPtr<ID3D11Texture2D> mTexture;
@@ -403,7 +403,7 @@ private:
 protected:
   RefPtr<ID3D11Device> GetDevice();
 
-  bool OpenSharedHandle();
+  bool EnsureTexture();
 
   RefPtr<ID3D11Texture2D> mTextures[3];
   RefPtr<DataTextureSourceD3D11> mTextureSources[3];
