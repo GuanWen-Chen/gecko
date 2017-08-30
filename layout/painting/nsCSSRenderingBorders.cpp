@@ -3599,11 +3599,6 @@ nsCSSBorderRenderer::CanCreateWebRenderCommands()
       return false;
     }
 
-    if (mBorderStyles[i] == NS_STYLE_BORDER_STYLE_DOUBLE ||
-        mBorderStyles[i] == NS_STYLE_BORDER_STYLE_DOTTED ||
-        mBorderStyles[i] == NS_STYLE_BORDER_STYLE_DASHED) {
-      return false;
-    }
   }
 
   return true;
