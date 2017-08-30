@@ -336,11 +336,8 @@ nsDisplayButtonBorder::GetLayerState(nsDisplayListBuilder* aBuilder,
                                          nsRect(offset, mFrame->GetSize()),
                                          mFrame->StyleContext(),
                                          mFrame->GetSkipSides());
-    if (!br) {
-      return LAYER_NONE;
-    }
 
-    if (!br->CanCreateWebRenderCommands()) {
+    if (br && !br->CanCreateWebRenderCommands()) {
       return LAYER_NONE;
     }
 
@@ -373,7 +370,7 @@ nsDisplayButtonBorder::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& 
     }
   }
 
-  MOZ_ASSERT(mBorderRenderer);
+  if (!mBorderRenderer) return false;
 
   // This is really a combination of paint box shadow inner +
   // paint border.
@@ -524,7 +521,7 @@ nsDisplayButtonForeground::GetLayerState(nsDisplayListBuilder* aBuilder,
     }
   }
 
-  if (!br || !br->CanCreateWebRenderCommands()) {
+  if (br && !br->CanCreateWebRenderCommands()) {
     return LAYER_NONE;
   }
 
@@ -555,7 +552,9 @@ nsDisplayButtonForeground::CreateWebRenderCommands(mozilla::wr::DisplayListBuild
     }
   }
 
-  mBorderRenderer->CreateWebRenderCommands(aBuilder, aSc);
+  if (mBorderRenderer) {
+    mBorderRenderer->CreateWebRenderCommands(aBuilder, aSc);
+  }
   return true;
 }
 
