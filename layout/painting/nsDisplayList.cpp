@@ -9065,7 +9065,6 @@ nsDisplayFilter::BuildLayer(nsDisplayListBuilder* aBuilder,
   RefPtr<ContainerLayer> container = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, &mList,
                            newContainerParameters, nullptr);
-
   LayerState state = this->GetLayerState(aBuilder, aManager, newContainerParameters);
   if (container && state != LAYER_SVG_EFFECTS) {
     const nsTArray<nsStyleFilter>& filters = mFrame->StyleEffects()->mFilters;

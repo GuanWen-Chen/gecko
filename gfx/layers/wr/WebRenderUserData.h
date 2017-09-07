@@ -6,6 +6,7 @@
 #ifndef GFX_WEBRENDERUSERDATA_H
 #define GFX_WEBRENDERUSERDATA_H
 
+#include "BasicLayers.h"                // for BasicLayerManager
 #include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "mozilla/layers/AnimationInfo.h"
@@ -107,6 +108,7 @@ public:
   void SetInvalid(bool aInvalid) { mInvalid = aInvalid; }
   bool IsInvalid() { return mInvalid; }
 
+  RefPtr<BasicLayerManager> mBasicLayerManager;
 protected:
   nsAutoPtr<nsDisplayItemGeometry> mGeometry;
   nsRect mBounds;
