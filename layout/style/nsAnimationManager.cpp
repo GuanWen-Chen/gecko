@@ -168,6 +168,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
   // If the animation is pending, we ignore animation events until we finish
   // pending.
   if (mPendingState != PendingState::NotPending) {
+    printf_stderr("GUAN animation pending\n");
     return;
   }
 
@@ -184,6 +185,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
   // of the "original owning element" or "event target" and allow script
   // to set it when creating a CSSAnimation object.
   if (!mOwningElement.IsSet()) {
+    printf_stderr("GUAN owning element not set\n");
     return;
   }
 
@@ -196,6 +198,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
   nsPresContext* presContext =
     nsContentUtils::GetContextForContent(owningElement);
   if (!presContext) {
+    printf_stderr("GUAN no context\n");
     return;
   }
   nsAnimationManager* manager = presContext->AnimationManager();
@@ -206,7 +209,6 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
   StickyTimeDuration intervalStartTime;
   StickyTimeDuration intervalEndTime;
   StickyTimeDuration iterationStartTime;
-
   if (!mEffect) {
     currentPhase = GetAnimationPhaseWithoutEffect
       <ComputedTiming::AnimationPhase>(*this);
@@ -216,6 +218,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
     currentIteration = computedTiming.mCurrentIteration;
     if (currentPhase == mPreviousPhase &&
         currentIteration == mPreviousIteration) {
+      printf_stderr("GUAN same phase\n");
       return;
     }
     intervalStartTime =
@@ -234,7 +237,9 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
       computedTiming.mDuration.MultDouble(
         (iterationBoundary - computedTiming.mIterationStart));
   }
-
+//  if (currentPhase == AnimationPhase::After) {
+    printf_stderr("GUAN after %s Effect %d\n", (mEffect)?"with":"without", (int)currentPhase);
+//  }
   TimeStamp startTimeStamp     = ElapsedTimeToTimeStamp(intervalStartTime);
   TimeStamp endTimeStamp       = ElapsedTimeToTimeStamp(intervalEndTime);
   TimeStamp iterationTimeStamp = ElapsedTimeToTimeStamp(iterationStartTime);
@@ -259,6 +264,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
                                                    intervalStartTime,
                                                    startTimeStamp });
       } else if (currentPhase == AnimationPhase::After) {
+        printf_stderr("GUAN append animationend Idle/Before -> After\n");
         events.AppendElement(AnimationEventParams{ eAnimationStart,
                                                    intervalStartTime,
                                                    startTimeStamp });
@@ -272,6 +278,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
         events.AppendElement(AnimationEventParams{ eAnimationEnd,
                                                    intervalStartTime,
                                                    startTimeStamp });
+        printf_stderr("GUAN append animationend Active -> Before\n");
       } else if (currentPhase == AnimationPhase::Active) {
         // The currentIteration must have changed or element we would have
         // returned early above.
@@ -283,6 +290,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
         events.AppendElement(AnimationEventParams{ eAnimationEnd,
                                                    intervalEndTime,
                                                    endTimeStamp });
+        printf_stderr("GUAN append animationend Active -> After\n");
       }
       break;
     case AnimationPhase::After:
@@ -293,6 +301,7 @@ CSSAnimation::QueueEvents(StickyTimeDuration aActiveTime)
         events.AppendElement(AnimationEventParams{ eAnimationEnd,
                                                    intervalStartTime,
                                                    endTimeStamp });
+        printf_stderr("GUAN append animationend After -> Before\n");
       } else if (currentPhase == AnimationPhase::Active) {
         events.AppendElement(AnimationEventParams{ eAnimationStart,
                                                    intervalEndTime,

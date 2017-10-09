@@ -15,6 +15,7 @@
 <div id="target"></div>
 <script>
 document.getElementById("target").addEventListener("animationend", () => {
+  console.log("animationend!!!!!");
   document.documentElement.classList.remove("reftest-wait");
 });
 </script>

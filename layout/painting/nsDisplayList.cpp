@@ -5036,6 +5036,7 @@ nsDisplayBorder::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuild
     CreateBorderImageWebRenderCommands(aBuilder, aResources, aSc,
                                        aManager, aDisplayListBuilder);
   } else if (mBorderRenderer) {
+    // This part has problem
     mBorderRenderer->CreateWebRenderCommands(aBuilder, aResources, aSc);
   }
 

@@ -149,6 +149,7 @@ DocumentTimeline::NotifyAnimationUpdated(Animation& aAnimation)
 void
 DocumentTimeline::WillRefresh(mozilla::TimeStamp aTime)
 {
+  printf_stderr("GUAN willRefresh\n");
   MOZ_ASSERT(mIsObservingRefreshDriver);
   MOZ_ASSERT(GetRefreshDriver(),
              "Should be able to reach refresh driver from within WillRefresh");
@@ -166,6 +167,7 @@ DocumentTimeline::WillRefresh(mozilla::TimeStamp aTime)
       // animation list of this timeline object!
       MOZ_ASSERT(!animation->GetTimeline());
       animationsToRemove.AppendElement(animation);
+      printf_stderr("GUAN skip\n");
       continue;
     }
 
@@ -185,6 +187,7 @@ DocumentTimeline::WillRefresh(mozilla::TimeStamp aTime)
   }
 
   if (!needsTicks) {
+    printf_stderr("GUAN unregister ticks\n");
     // We already assert that GetRefreshDriver() is non-null at the beginning
     // of this function but we check it again here to be sure that ticking
     // animations does not have any side effects that cause us to lose the
@@ -218,7 +221,7 @@ DocumentTimeline::NotifyRefreshDriverDestroying(nsRefreshDriver* aDriver)
   if (!mIsObservingRefreshDriver) {
     return;
   }
-
+  printf_stderr("GUAN DocumentTimeline::NotifyRefreshDriverDestroying\n");
   aDriver->RemoveRefreshObserver(this, FlushType::Style);
   mIsObservingRefreshDriver = false;
 }
@@ -227,7 +230,8 @@ void
 DocumentTimeline::RemoveAnimation(Animation* aAnimation)
 {
   AnimationTimeline::RemoveAnimation(aAnimation);
-
+  printf_stderr("GUAN remove animation!!!!!\n");
+  nsTraceRefcnt::WalkTheStack(stderr);
   if (mIsObservingRefreshDriver && mAnimations.IsEmpty()) {
     UnregisterFromRefreshDriver();
   }
@@ -274,7 +278,7 @@ DocumentTimeline::UnregisterFromRefreshDriver()
   if (!refreshDriver) {
     return;
   }
-
+  printf_stderr("GUAN DocumentTimeline::UnregisterFromRefreshDriver\n");
   refreshDriver->RemoveRefreshObserver(this, FlushType::Style);
   mIsObservingRefreshDriver = false;
 }
