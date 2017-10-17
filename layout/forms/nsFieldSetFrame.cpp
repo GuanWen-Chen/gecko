@@ -98,12 +98,17 @@ public:
                                          nsRegion *aInvalidRegion) const override;
   virtual nsRect GetBounds(nsDisplayListBuilder* aBuilder,
                            bool* aSnap) const override;
+  virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
+                                   LayerManager* aManager,
+                                   const ContainerLayerParameters& aParameters) override;
   virtual bool CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
                                        mozilla::wr::IpcResourceUpdateQueue& aResources,
                                        const StackingContextHelper& aSc,
                                        mozilla::layers::WebRenderLayerManager* aManager,
                                        nsDisplayListBuilder* aDisplayListBuilder) override;
   NS_DISPLAY_DECL_NAME("FieldSetBorder", TYPE_FIELDSET_BORDER_BACKGROUND)
+private:
+  Maybe<nsCSSBorderRenderer> mBorderRenderer;
 };
 
 void
@@ -116,6 +121,43 @@ nsDisplayFieldSetBorder::Paint(nsDisplayListBuilder* aBuilder,
   nsDisplayItemGenericImageGeometry::UpdateDrawResult(this, result);
 }
 
+LayerState
+nsDisplayFieldSetBorder::GetLayerState(nsDisplayListBuilder* aBuilder,
+                                       LayerManager* aManager,
+                                       const ContainerLayerParameters& aParameters)
+{
+    // TODO: Figure out what to do with sync decode images
+    if (aBuilder->ShouldSyncDecodeImages()) {
+      return LAYER_NONE;
+    }
+
+    nsPoint offset = ToReferenceFrame();
+    if (!nsDisplayBoxShadowInner::CanCreateWebRenderCommands(aBuilder,
+                                                             mFrame,
+                                                             offset)) {
+      return LAYER_NONE;
+    }
+
+    Maybe<nsCSSBorderRenderer> br =
+    nsCSSRendering::CreateBorderRenderer(mFrame->PresContext(),
+                                         nullptr,
+                                         mFrame,
+                                         nsRect(),
+                                         nsRect(offset, mFrame->GetSize()),
+                                         mFrame->StyleContext(),
+                                         mFrame->GetSkipSides());
+    if (!br) {
+      return LAYER_NONE;
+    }
+
+    if (!br->CanCreateWebRenderCommands()) {
+      return LAYER_NONE;
+    }
+
+    mBorderRenderer = br;
+    return LAYER_ACTIVE;
+}
+
 bool
 nsDisplayFieldSetBorder::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
                                                  mozilla::wr::IpcResourceUpdateQueue& aResources,
@@ -123,6 +165,25 @@ nsDisplayFieldSetBorder::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder
                                                  mozilla::layers::WebRenderLayerManager* aManager,
                                                  nsDisplayListBuilder* aDisplayListBuilder)
 {
+  ContainerLayerParameters parameter;
+  if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
+    return true;
+  }
+
+  MOZ_ASSERT(mBorderRenderer);
+
+  // This is really a combination of paint box shadow inner +
+  // paint border.
+  nsRect buttonRect = nsRect(ToReferenceFrame(), mFrame->GetSize());
+  bool snap;
+  nsRegion visible = GetBounds(aDisplayListBuilder, &snap);
+  nsDisplayBoxShadowInner::CreateInsetBoxShadowWebRenderCommands(aBuilder,
+                                                                 aSc,
+                                                                 visible,
+                                                                 mFrame,
+                                                                 buttonRect);
+  mBorderRenderer->CreateWebRenderCommands(aBuilder, aResources, aSc);
+
   return true;
 }
 
