@@ -1351,8 +1351,49 @@ public:
     nsDisplayItemGenericImageGeometry::UpdateDrawResult(this, result);
   }
 
+  virtual bool CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
+                                       mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                       const StackingContextHelper& aSc,
+                                       mozilla::layers::WebRenderLayerManager* aManager,
+                                       nsDisplayListBuilder* aDisplayListBuilder) override;
+
   NS_DISPLAY_DECL_NAME("AltFeedback", TYPE_ALT_FEEDBACK)
 };
+
+bool
+nsDisplayAltFeedback::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
+                                              mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                              const StackingContextHelper& aSc,
+                                              mozilla::layers::WebRenderLayerManager* aManager,
+                                              nsDisplayListBuilder* aDisplayListBuilder) {
+
+  nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
+
+  nsRect rect = f->GetInnerArea() + ToReferenceFrame();
+    printf_stderr("GUAN !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! %s\n", Stringify(rect).c_str());
+    LayoutDeviceRect layerRects = LayoutDeviceRect::FromAppUnits(
+      rect, mFrame->PresContext()->AppUnitsPerDevPixel());
+    wr::LayoutRect transformedRect = aSc.ToRelativeLayoutRect(layerRects);
+    aBuilder.PushRect(transformedRect,
+                      transformedRect,
+                      !BackfaceIsHidden(),
+                      wr::ToColorF(Color(255.0, 200.0, 200.0, 1.0)));
+//                      wr::ToColorF(ToDeviceColor(mColor)));
+
+  // Display a recessed one pixel border
+  nscoord borderEdgeWidth = nsPresContext::CSSPixelsToAppUnits(ALT_BORDER_WIDTH);
+  nsRecessedBorder recessedBorder(borderEdgeWidth, f->PresContext());
+/*  return nsCSSRendering::CreateWebRenderCommandsForBorder(this,
+                                                          mFrame,
+                                                          rect,
+                                                          aBuilder,
+                                                          aResources,
+                                                          aSc,
+                                                          aManager,
+                                                          aDisplayListBuilder,
+                                                          &recessedBorder);*/
+  return true;
+}
 
 DrawResult
 nsImageFrame::DisplayAltFeedback(gfxContext& aRenderingContext,

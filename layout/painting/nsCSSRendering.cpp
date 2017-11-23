@@ -704,7 +704,8 @@ nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
                                                  mozilla::wr::IpcResourceUpdateQueue& aResources,
                                                  const mozilla::layers::StackingContextHelper& aSc,
                                                  mozilla::layers::WebRenderLayerManager* aManager,
-                                                 nsDisplayListBuilder* aDisplayListBuilder)
+                                                 nsDisplayListBuilder* aDisplayListBuilder,
+                                                 nsStyleContext* aOverrideStyleContext)
 {
   // First try to draw a normal border
   {
@@ -715,7 +716,7 @@ nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
                                            aForFrame,
                                            nsRect(),
                                            aBorderArea,
-                                           aForFrame->StyleContext(),
+                                           (aOverrideStyleContext)?aOverrideStyleContext:aForFrame->StyleContext(),
                                            &borderIsEmpty,
                                            aForFrame->GetSkipSides());
     if (borderIsEmpty) {

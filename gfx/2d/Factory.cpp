@@ -454,11 +454,12 @@ Factory::CreateDrawTargetForData(BackendType aBackend,
                                  bool aUninitialized)
 {
   MOZ_ASSERT(aData);
-  if (!AllowedSurfaceSize(aSize)) {
+/*  if (!AllowedSurfaceSize(aSize)) {
+    printf_stderr("DTD1!!!!!!!\n");
     gfxCriticalError(LoggerOptionsBasedOnSize(aSize)) << "Failed to allocate a surface due to invalid size (DTD) " << aSize;
     return nullptr;
   }
-
+*/
   RefPtr<DrawTarget> retVal;
 
   switch (aBackend) {
@@ -486,14 +487,17 @@ Factory::CreateDrawTargetForData(BackendType aBackend,
 #endif
   default:
     gfxCriticalNote << "Invalid draw target type specified: " << (int)aBackend;
+    printf_stderr("DTD2!!!!!!!\n");
     return nullptr;
   }
 
   if (mRecorder && retVal) {
+    printf_stderr("DTD3!!!!!!!\n");
     return MakeAndAddRef<DrawTargetWrapAndRecord>(mRecorder, retVal, true);
   }
 
   if (!retVal) {
+    printf_stderr("DTD4!!!!!!!\n");
     gfxCriticalNote << "Failed to create DrawTarget, Type: " << int(aBackend) << " Size: " << aSize << ", Data: " << hexa((void *)aData) << ", Stride: " << aStride;
   }
 

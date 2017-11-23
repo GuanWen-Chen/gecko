@@ -223,7 +223,8 @@ struct nsCSSRendering {
                                                mozilla::wr::IpcResourceUpdateQueue& aResources,
                                                const mozilla::layers::StackingContextHelper& aSc,
                                                mozilla::layers::WebRenderLayerManager* aManager,
-                                               nsDisplayListBuilder* aDisplayListBuilder);
+                                               nsDisplayListBuilder* aDisplayListBuilder,
+                                               nsStyleContext* aOverrideStyleContext = nullptr);
 
   /**
    * Render the outline for an element using css rendering rules

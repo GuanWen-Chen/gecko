@@ -193,15 +193,17 @@ impl BlobImageRenderer for Moz2dImageRenderer {
     }
 
     fn resolve(&mut self, request: BlobImageRequest) -> BlobImageResult {
-
+        println!("Resolved1!!!!!");
         match self.rendered_images.entry(request) {
             Entry::Vacant(_) => {
+                println!("Return0!!!!!");
                 return Err(BlobImageError::InvalidKey);
             }
             Entry::Occupied(entry) => {
                 // None means we haven't yet received the result.
                 if entry.get().is_some() {
                     let result = entry.remove();
+                    println!("Return1!!!!!");
                     return result.unwrap();
                 }
             }
@@ -211,12 +213,19 @@ impl BlobImageRenderer for Moz2dImageRenderer {
         while let Ok((req, result)) = self.rx.recv() {
             if req == request {
                 // There it is!
+                if self.rendered_images.contains_key(&request) {
+                    println!("HasKey!!!!!!");
+                } else {
+                    println!("NoKey!!!!!!");
+                }
                 self.rendered_images.remove(&request);
+                println!("Return2!!!!!");
                 return result
             }
             self.rendered_images.insert(req, Some(result));
         }
 
+        println!("Return3!!!!!");
         // If we break out of the loop above it means the channel closed unexpectedly.
         Err(BlobImageError::Other("Channel closed".into()))
     }

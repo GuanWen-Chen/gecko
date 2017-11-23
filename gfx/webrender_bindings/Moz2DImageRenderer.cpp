@@ -158,12 +158,14 @@ static bool Moz2DRenderCallback(const Range<const uint8_t> aBlob,
 {
   MOZ_ASSERT(aSize.width > 0 && aSize.height > 0);
   if (aSize.width <= 0 || aSize.height <= 0) {
+    printf_stderr("False 1!!!!!");
     return false;
   }
 
   auto stride = aSize.width * gfx::BytesPerPixel(aFormat);
 
   if (aOutput.length() < static_cast<size_t>(aSize.height * stride)) {
+    printf_stderr("False 2!!!!!");
     return false;
   }
 
@@ -180,6 +182,7 @@ static bool Moz2DRenderCallback(const Range<const uint8_t> aBlob,
   );
 
   if (!dt) {
+    printf_stderr("False 3!!!!!\n");
     return false;
   }
 
@@ -240,6 +243,7 @@ static bool Moz2DRenderCallback(const Range<const uint8_t> aBlob,
   gfxUtils::WriteAsPNG(dt, filename);
 #endif
 
+    printf_stderr("Trueee!!!!!");
   return ret;
 }
 

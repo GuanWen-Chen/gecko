@@ -17,6 +17,7 @@ log = "0.3"
 path = "../webrender"
 version = "0.54.0"
 default-features = false
+features = ['debugger']
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.4"
