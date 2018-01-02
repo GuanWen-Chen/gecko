@@ -845,6 +845,7 @@ impl FrameBuilder {
         line_color: &ColorF,
         style: LineStyle,
     ) {
+        println!("Guan add_line {:?}", clip_and_scroll.clip_node_id());
         let line = LinePrimitive {
             wavy_line_thickness,
             color: line_color.premultiplied(),
@@ -858,21 +859,27 @@ impl FrameBuilder {
             let picture = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
             match picture.kind {
                 PictureKind::TextShadow { offset, color, blur_radius, .. } if blur_radius == 0.0 => {
-                    fast_shadow_prims.push((idx, offset, color));
+                    println!("Guan offsetttttt {:?}", offset);
+                    //fast_shadow_prims.push((idx, offset, color));
+                    let mut line_prim = line.clone();
+                    line_prim.color = color.premultiplied();
+                    //line_prim.offset += offset;
+                    fast_shadow_prims.push((idx, line_prim, offset));
                 }
                 _ => {}
             }
         }
 
-        for (idx, shadow_offset, shadow_color) in fast_shadow_prims {
-            let mut line = line.clone();
-            line.color = shadow_color.premultiplied();
+        for (idx, line_prime, offset) in fast_shadow_prims {
+         /*   let mut line = line.clone();
+            line.color = shadow_color.premultiplied();*/
+            let rect = info.rect;
             let mut info = info.clone();
-            info.rect = info.rect.translate(&shadow_offset);
+            info.rect = rect.translate(&offset);
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
-                PrimitiveContainer::Line(line),
+                PrimitiveContainer::Line(line_prime),
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
         }
@@ -891,7 +898,7 @@ impl FrameBuilder {
                 self.pending_shadow_contents.push((prim_index, clip_and_scroll, *info));
             }
         }
-
+/*
         for &(shadow_prim_index, _) in &self.shadow_prim_stack {
             let shadow_metadata = &mut self.prim_store.cpu_metadata[shadow_prim_index.0];
             debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Picture);
@@ -900,7 +907,7 @@ impl FrameBuilder {
 
             match picture.kind {
                 // Only run real blurs here (fast path zero blurs are handled above).
-                PictureKind::TextShadow { blur_radius, .. } if blur_radius > 0.0 => {
+                PictureKind::TextShadow { blur_radius, .. } if blur_radius != 0.0 => {
                     picture.add_primitive(
                         prim_index,
                         clip_and_scroll,
@@ -908,7 +915,7 @@ impl FrameBuilder {
                 }
                 _ => {}
             }
-        }
+        }*/
     }
 
     pub fn add_border(
@@ -1288,6 +1295,7 @@ impl FrameBuilder {
         glyph_count: usize,
         glyph_options: Option<GlyphOptions>,
     ) {
+        println!("Guan add_text {:?}", clip_and_scroll.clip_node_id());
         // Trivial early out checks
         if font.size.0 <= 0 {
             return;
@@ -1364,8 +1372,10 @@ impl FrameBuilder {
             match picture_prim.kind {
                 PictureKind::TextShadow { offset, color, blur_radius, .. } if blur_radius == 0.0 => {
                     let mut text_prim = prim.clone();
+                    text_prim.offset.y += offset.y;
+                    println!("Guan offsetttttt {} {} {:?}", offset.x, offset.y, text_prim.offset);
                     text_prim.shadow_color = color.into();
-                    text_prim.offset += offset;
+                    text_prim.offset;
                     fast_shadow_prims.push((idx, text_prim));
                 }
                 _ => {}

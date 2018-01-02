@@ -472,6 +472,9 @@ protected:
   std::unordered_map<const DisplayItemClipChain*, std::vector<wr::WrClipId>> mCacheOverride;
 
   friend class WebRenderAPI;
+private:
+  bool flag;
+  wr::LayoutRect tmpRect;
 };
 
 Maybe<wr::ImageFormat>

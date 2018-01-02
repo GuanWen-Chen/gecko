@@ -42,6 +42,7 @@ struct FlattenContext<'a> {
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
     replacements: Vec<(ClipId, ClipId)>,
     output_pipelines: &'a FastHashSet<PipelineId>,
+    flag: bool,
 }
 
 impl<'a> FlattenContext<'a> {
@@ -82,6 +83,7 @@ impl<'a> FlattenContext<'a> {
         root_reference_frame_id: ClipId,
         root_scroll_frame_id: ClipId,
     ) {
+        println!("Guan flatten_root");
         let clip_id = ClipId::root_scroll_node(pipeline_id);
 
         self.builder.push_stacking_context(
@@ -546,6 +548,7 @@ impl<'a> FlattenContext<'a> {
                 );
             }
             SpecificDisplayItem::Clip(ref info) => {
+                println!("Guan clip!!!");
                 let complex_clips = self.get_complex_clips(pipeline_id, item.complex_clip().0);
                 let clip_region = ClipRegion::create_for_clip_node(
                     *item.local_clip().clip_rect(),
@@ -609,12 +612,14 @@ impl<'a> FlattenContext<'a> {
                 unreachable!("Should have returned in parent method.")
             }
             SpecificDisplayItem::PushShadow(shadow) => {
+                self.flag = false;
                 let mut prim_info = prim_info.clone();
                 prim_info.rect = LayerRect::zero();
                 self.builder
                     .push_shadow(shadow, clip_and_scroll, &prim_info);
             }
             SpecificDisplayItem::PopAllShadows => {
+                self.flag = true;
                 self.builder.pop_all_shadows();
             }
         }
@@ -1018,7 +1023,7 @@ impl FrameContext {
         let background_color = root_pipeline
             .background_color
             .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
-
+        let mut flag = true;
         let frame_builder = {
             let mut roller = FlattenContext {
                 scene,
@@ -1033,6 +1038,7 @@ impl FrameContext {
                 pipeline_epochs: Vec::new(),
                 replacements: Vec::new(),
                 output_pipelines,
+               flag,
             };
 
             roller.builder.push_root(

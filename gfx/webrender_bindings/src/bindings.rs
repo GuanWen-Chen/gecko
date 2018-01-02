@@ -1401,6 +1401,7 @@ pub extern "C" fn wr_dp_define_clip(state: &mut WrState,
     match clip_id {
         ClipId::Clip(id, pipeline_id) => {
             assert!(pipeline_id == state.pipeline_id);
+            println!("Guan define clip {} rect {:?}", id, clip_rect);
             id
         },
         _ => panic!("Got unexpected clip id type"),

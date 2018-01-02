@@ -677,6 +677,7 @@ DisplayListBuilder::DisplayListBuilder(PipelineId aId,
 {
   MOZ_COUNT_CTOR(DisplayListBuilder);
   mWrState = wr_state_new(aId, aContentSize, aCapacity);
+  flag = true;
 }
 
 DisplayListBuilder::~DisplayListBuilder()
@@ -766,6 +767,7 @@ void
 DisplayListBuilder::PushClip(const wr::WrClipId& aClipId,
                              const DisplayItemClipChain* aParent)
 {
+  if (!flag) return;
   wr_dp_push_clip(mWrState, aClipId.id);
   WRDL_LOG("PushClip id=%" PRIu64 "\n", mWrState, aClipId.id);
   if (!aParent) {
@@ -778,6 +780,7 @@ DisplayListBuilder::PushClip(const wr::WrClipId& aClipId,
 void
 DisplayListBuilder::PopClip(const DisplayItemClipChain* aParent)
 {
+  if (!flag) return;
   WRDL_LOG("PopClip\n", mWrState);
   if (!aParent) {
     MOZ_ASSERT(mClipStack.back().is<wr::WrClipId>());
@@ -1206,12 +1209,14 @@ DisplayListBuilder::PushShadow(const wr::LayoutRect& aRect,
                                bool aIsBackfaceVisible,
                                const wr::Shadow& aShadow)
 {
+  flag = false;
   wr_dp_push_shadow(mWrState, aRect, aClip, aIsBackfaceVisible, aShadow);
 }
 
 void
 DisplayListBuilder::PopAllShadows()
 {
+  flag = true;
   wr_dp_pop_all_shadows(mWrState);
 }
 

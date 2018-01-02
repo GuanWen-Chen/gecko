@@ -6421,6 +6421,7 @@ nsTextFrame::PaintTextWithSelectionColors(
     SelectionIterator iterator(prevailingSelections, contentRange,
                                *aParams.provider, mTextRun, startIOffset);
     SelectionType selectionType;
+    
     while (iterator.GetNextSegment(&iOffset, &range, &hyphenWidth,
                                    &selectionType, &rangeStyle)) {
       nscolor foreground, background;
@@ -6477,9 +6478,11 @@ nsTextFrame::PaintTextWithSelectionColors(
   const nsStyleText* textStyle = StyleText();
   SelectionIterator iterator(prevailingSelections, contentRange,
                              *aParams.provider, mTextRun, startIOffset);
+  int count = 0;
   SelectionType selectionType;
   while (iterator.GetNextSegment(&iOffset, &range, &hyphenWidth,
                                  &selectionType, &rangeStyle)) {
+    count++;
     nscolor foreground, background;
     if (aParams.IsGenerateTextMask()) {
       foreground = NS_RGBA(0, 0, 0, 255);
@@ -6497,7 +6500,7 @@ nsTextFrame::PaintTextWithSelectionColors(
     nsCSSShadowArray* shadow = textStyle->GetTextShadow();
     GetSelectionTextShadow(this, selectionType, *aParams.textPaintStyle,
                            &shadow);
-    if (shadow) {
+    if (shadow && count != 2) {
       nscoord startEdge = iOffset;
       if (mTextRun->IsInlineReversed()) {
         startEdge -= hyphenWidth +

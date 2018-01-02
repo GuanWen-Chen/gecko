@@ -862,6 +862,7 @@ impl DisplayListBuilder {
         color: &ColorF,
         style: LineStyle,
     ) {
+        println!("Guan push line");
         let item = SpecificDisplayItem::Line(LineDisplayItem {
             wavy_line_thickness,
             orientation,
@@ -914,6 +915,7 @@ impl DisplayListBuilder {
         color: ColorF,
         glyph_options: Option<GlyphOptions>,
     ) {
+        println!("Guan push text");
         let item = SpecificDisplayItem::Text(TextDisplayItem {
             color,
             font_key,
@@ -1288,7 +1290,7 @@ impl DisplayListBuilder {
         &mut self,
         id: Option<ClipId>,
         parent: ClipId,
-        clip_rect: LayoutRect,
+        mut clip_rect: LayoutRect,
         complex_clips: I,
         image_mask: Option<ImageMask>,
     ) -> ClipId
@@ -1297,6 +1299,17 @@ impl DisplayListBuilder {
         I::IntoIter: ExactSizeIterator + Clone,
     {
         let id = self.generate_clip_id(id);
+        match id {
+          ClipId::Clip(id, pipe) => {
+            if id == 3 || id == 5 || id == 7 {
+              clip_rect.size.width *= 2.0;
+              clip_rect.size.height *= 2.0;
+            }
+          }
+          _ => {
+          }
+        }
+       
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             id,
             image_mask: image_mask,
@@ -1335,6 +1348,7 @@ impl DisplayListBuilder {
     }
 
     pub fn push_clip_id(&mut self, id: ClipId) {
+        println!("Guan push_clip {:?}", id);
         self.clip_stack.push(ClipAndScrollInfo::simple(id));
     }
 
@@ -1344,6 +1358,7 @@ impl DisplayListBuilder {
 
     pub fn pop_clip_id(&mut self) {
         self.clip_stack.pop();
+        println!("Guan pop_clip");
         if let Some(save_state) = self.save_state.as_ref() {
             assert!(self.clip_stack.len() >= save_state.clip_stack_len,
                     "Cannot pop clips that were pushed before the DisplayListBuilder save.");
@@ -1359,10 +1374,12 @@ impl DisplayListBuilder {
     }
 
     pub fn push_shadow(&mut self, info: &LayoutPrimitiveInfo, shadow: Shadow) {
+        println!("Guan push_shadow");
         self.push_item(SpecificDisplayItem::PushShadow(shadow), info);
     }
 
     pub fn pop_all_shadows(&mut self) {
+        println!("Guan pop_all_shadow");
         self.push_new_empty_item(SpecificDisplayItem::PopAllShadows);
     }
 
