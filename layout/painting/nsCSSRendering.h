@@ -225,6 +225,17 @@ struct nsCSSRendering {
                                                mozilla::layers::WebRenderLayerManager* aManager,
                                                nsDisplayListBuilder* aDisplayListBuilder);
 
+  static bool CreateWebRenderCommandsForBorderWithStyleBorder(nsDisplayItem* aItem,
+                                               nsIFrame* aForFrame,
+                                               const nsRect& aBorderArea,
+                                               mozilla::wr::DisplayListBuilder& aBuilder,
+                                               mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                               const mozilla::layers::StackingContextHelper& aSc,
+                                               mozilla::layers::WebRenderLayerManager* aManager,
+                                               nsDisplayListBuilder* aDisplayListBuilder,
+                                               const nsStyleBorder& aStyleBorder);
+
+
   /**
    * Render the outline for an element using css rendering rules
    * for borders.

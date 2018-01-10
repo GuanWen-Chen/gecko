@@ -695,7 +695,6 @@ nsCSSRendering::CreateBorderRenderer(nsPresContext* aPresContext,
                                              aOutBorderIsEmpty, aSkipSides);
 }
 
-
 bool
 nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
                                                  nsIFrame* aForFrame,
@@ -706,15 +705,32 @@ nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
                                                  mozilla::layers::WebRenderLayerManager* aManager,
                                                  nsDisplayListBuilder* aDisplayListBuilder)
 {
+  const nsStyleBorder *styleBorder = aForFrame->StyleContext()->StyleBorder();
+  return nsCSSRendering::CreateWebRenderCommandsForBorderWithStyleBorder(aItem, aForFrame, aBorderArea, aBuilder, aResources, aSc, aManager, aDisplayListBuilder, *styleBorder);
+}
+
+
+bool
+nsCSSRendering::CreateWebRenderCommandsForBorderWithStyleBorder(nsDisplayItem* aItem,
+                                                 nsIFrame* aForFrame,
+                                                 const nsRect& aBorderArea,
+                                                 mozilla::wr::DisplayListBuilder& aBuilder,
+                                                 mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                                 const mozilla::layers::StackingContextHelper& aSc,
+                                                 mozilla::layers::WebRenderLayerManager* aManager,
+                                                 nsDisplayListBuilder* aDisplayListBuilder,
+                                                 const nsStyleBorder& aStyleBorder)
+{
   // First try to draw a normal border
   {
     bool borderIsEmpty = false;
     Maybe<nsCSSBorderRenderer> br =
-      nsCSSRendering::CreateBorderRenderer(aForFrame->PresContext(),
+      nsCSSRendering::CreateBorderRendererWithStyleBorder(aForFrame->PresContext(),
                                            nullptr,
                                            aForFrame,
                                            nsRect(),
                                            aBorderArea,
+                                           aStyleBorder,
                                            aForFrame->StyleContext(),
                                            &borderIsEmpty,
                                            aForFrame->GetSkipSides());
@@ -732,8 +748,7 @@ nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
   }
 
   // Next try to draw an image border
-  const nsStyleBorder *styleBorder = aForFrame->StyleContext()->StyleBorder();
-  const nsStyleImage* image = &styleBorder->mBorderImageSource;
+  const nsStyleImage* image = &aStyleBorder.mBorderImageSource;
 
   // Filter out unsupported image/border types
   if (!image) {
@@ -749,10 +764,10 @@ nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
     return false;
   }
 
-  if (styleBorder->mBorderImageRepeatH == StyleBorderImageRepeat::Round ||
-      styleBorder->mBorderImageRepeatH == StyleBorderImageRepeat::Space ||
-      styleBorder->mBorderImageRepeatV == StyleBorderImageRepeat::Round ||
-      styleBorder->mBorderImageRepeatV == StyleBorderImageRepeat::Space) {
+  if (aStyleBorder.mBorderImageRepeatH == StyleBorderImageRepeat::Round ||
+      aStyleBorder.mBorderImageRepeatH == StyleBorderImageRepeat::Space ||
+      aStyleBorder.mBorderImageRepeatV == StyleBorderImageRepeat::Round ||
+      aStyleBorder.mBorderImageRepeatV == StyleBorderImageRepeat::Space) {
     return false;
   }
 
@@ -767,7 +782,7 @@ nsCSSRendering::CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
     nsCSSBorderImageRenderer::CreateBorderImageRenderer(aForFrame->PresContext(),
                                                         aForFrame,
                                                         aBorderArea,
-                                                        *styleBorder,
+                                                        aStyleBorder,
                                                         aItem->GetVisibleRect(),
                                                         aForFrame->GetSkipSides(),
                                                         flags,

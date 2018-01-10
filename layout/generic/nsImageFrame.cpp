@@ -5,7 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /* rendering object for replaced elements with image data */
-
+#include "TextDrawTarget.h"
 #include "nsImageFrame.h"
 
 #include "gfx2DGlue.h"
@@ -1356,6 +1356,27 @@ public:
     nsDisplayItemGenericImageGeometry::UpdateDrawResult(this, result);
   }
 
+  virtual bool CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
+                                       mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                       const StackingContextHelper& aSc,
+                                       mozilla::layers::WebRenderLayerManager* aManager,
+                                       nsDisplayListBuilder* aDisplayListBuilder) override
+  {
+    if (!mFrame->IsImageFrame()) {
+      MOZ_ASSERT(false);
+      return false;
+    }
+
+    uint32_t flags = imgIContainer::FLAG_ASYNC_NOTIFY;
+    nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
+    ImgDrawResult result =
+       f->DisplayAltFeedbackWithoutLayer(this, aBuilder, aResources, aSc,
+                                         aManager, aDisplayListBuilder,
+                                         ToReferenceFrame(), flags);
+
+    return (result == ImgDrawResult::SUCCESS);
+  }
+
   NS_DISPLAY_DECL_NAME("AltFeedback", TYPE_ALT_FEEDBACK)
 };
 
@@ -1372,7 +1393,7 @@ nsImageFrame::DisplayAltFeedback(gfxContext& aRenderingContext,
   bool isLoading = IMAGE_OK(GetContent()->AsElement()->State(), true);
 
   // Calculate the inner area
-  nsRect  inner = GetInnerArea() + aPt;
+  nsRect inner = GetInnerArea() + aPt;
 
   // Display a recessed one pixel border
   nscoord borderEdgeWidth = nsPresContext::CSSPixelsToAppUnits(ALT_BORDER_WIDTH);
@@ -1457,7 +1478,7 @@ nsImageFrame::DisplayAltFeedback(gfxContext& aRenderingContext,
                   inner.y, size, size);
       result = nsLayoutUtils::DrawSingleImage(aRenderingContext, PresContext(), imgCon,
         nsLayoutUtils::GetSamplingFilterForFrame(this), dest, aDirtyRect,
-        /* no SVGImageContext */ Nothing(), aFlags);
+        Nothing(), aFlags);
     }
 
     // If we could not draw the icon, just draw some graffiti in the mean time.
@@ -1512,8 +1533,194 @@ nsImageFrame::DisplayAltFeedback(gfxContext& aRenderingContext,
   }
 
   aRenderingContext.Restore();
-
   return result;
+}
+
+ImgDrawResult
+nsImageFrame::DisplayAltFeedbackWithoutLayer(nsDisplayItem* aItem,
+                                             mozilla::wr::DisplayListBuilder& aBuilder,
+                                             mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                             const StackingContextHelper& aSc,
+                                             mozilla::layers::WebRenderLayerManager* aManager,
+                                             nsDisplayListBuilder* aDisplayListBuilder,
+                                             nsPoint aPt, uint32_t aFlags)
+{
+  // We should definitely have a gIconLoad here.
+  MOZ_ASSERT(gIconLoad, "How did we succeed in Init then?");
+
+  // Whether we draw the broken or loading icon.
+  bool isLoading = IMAGE_OK(GetContent()->AsElement()->State(), true);
+
+  // Calculate the inner area
+  nsRect inner = GetInnerArea() + aPt;
+
+  // Display a recessed one pixel border
+  nscoord borderEdgeWidth = nsPresContext::CSSPixelsToAppUnits(ALT_BORDER_WIDTH);
+
+  // if inner area is empty, then make it big enough for at least the icon
+  if (inner.IsEmpty()){
+    inner.SizeTo(2*(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH)),
+                 2*(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH)));
+  }
+
+  // Make sure we have enough room to actually render the border within
+  // our frame bounds
+  if ((inner.width < 2 * borderEdgeWidth) || (inner.height < 2 * borderEdgeWidth)) {
+    return ImgDrawResult::SUCCESS;
+  }
+
+  // Paint the border
+  if (!isLoading || gIconLoad->mPrefShowLoadingPlaceholder) {
+    nsRecessedBorder recessedBorder(borderEdgeWidth, PresContext());
+    // Assert that we're not drawing a border-image here; if we were, we
+    // couldn't ignore the ImgDrawResult that PaintBorderWithStyleBorder returns.
+    MOZ_ASSERT(recessedBorder.mBorderImageSource.GetType() == eStyleImageType_Null);
+
+    nsRect rect = nsRect(aPt, GetSize());
+    Unused <<
+      nsCSSRendering::CreateWebRenderCommandsForBorderWithStyleBorder(aItem,
+                                                            this,
+                                                            rect,
+                                                            aBuilder,
+                                                            aResources,
+                                                            aSc,
+                                                            aManager,
+                                                            aDisplayListBuilder,
+                                                            recessedBorder);
+  }
+
+  // Adjust the inner rect to account for the one pixel recessed border,
+  // and a six pixel padding on each edge
+  inner.Deflate(nsPresContext::CSSPixelsToAppUnits(ICON_PADDING+ALT_BORDER_WIDTH),
+                nsPresContext::CSSPixelsToAppUnits(ICON_PADDING+ALT_BORDER_WIDTH));
+  if (inner.IsEmpty()) {
+    return ImgDrawResult::SUCCESS;
+  }
+
+  // Clip so we don't render outside the inner rect
+  LayoutDeviceRect bounds = LayoutDeviceRect::FromAppUnits(
+        inner, PresContext()->AppUnitsPerDevPixel());
+  wr::LayoutRect transformedRect = aSc.ToRelativeLayoutRect(bounds);
+  auto clipId = aBuilder.DefineClip(Nothing(), Nothing(), transformedRect);
+  aBuilder.PushClip(clipId);
+
+  // Draw image
+  ImgDrawResult result = ImgDrawResult::NOT_READY;
+
+  // Check if we should display image placeholders
+  if (!gIconLoad->mPrefShowPlaceholders ||
+      (isLoading && !gIconLoad->mPrefShowLoadingPlaceholder)) {
+    result = ImgDrawResult::SUCCESS;
+  } else {
+    nscoord size = nsPresContext::CSSPixelsToAppUnits(ICON_SIZE);
+    imgIRequest* request = isLoading
+                              ? nsImageFrame::gIconLoad->mLoadingImage
+                              : nsImageFrame::gIconLoad->mBrokenImage;
+
+    // If we weren't previously displaying an icon, register ourselves
+    // as an observer for load and animation updates and flag that we're
+    // doing so now.
+    if (request && !mDisplayingIcon) {
+      gIconLoad->AddIconObserver(this);
+      mDisplayingIcon = true;
+    }
+
+    WritingMode wm = GetWritingMode();
+    bool flushRight =
+      (!wm.IsVertical() && !wm.IsBidiLTR()) || wm.IsVerticalRL();
+
+    // If the icon in question is loaded, draw it.
+    uint32_t imageStatus = 0;
+    if (request)
+      request->GetImageStatus(&imageStatus);
+    if (imageStatus & imgIRequest::STATUS_LOAD_COMPLETE &&
+        !(imageStatus & imgIRequest::STATUS_ERROR)) {
+      nsCOMPtr<imgIContainer> imgCon;
+      request->GetImage(getter_AddRefs(imgCon));
+      MOZ_ASSERT(imgCon, "Load complete, but no image container?");
+
+      nsRect dest(flushRight ? inner.XMost() - size : inner.x,
+                  inner.y, size, size);
+
+      const int32_t factor = PresContext()->AppUnitsPerDevPixel();
+      const LayoutDeviceRect destRect(
+        LayoutDeviceRect::FromAppUnits(dest, factor));
+      Maybe<SVGImageContext> svgContext;
+      IntSize decodeSize =
+        nsLayoutUtils::ComputeImageContainerDrawingParameters(imgCon, this, destRect,
+                                                              aSc, aFlags, svgContext);
+      RefPtr<ImageContainer> container =
+        imgCon->GetImageContainerAtSize(aManager, decodeSize, svgContext, aFlags);
+      if (!container) {
+        return ImgDrawResult::INCOMPLETE;
+      }
+
+      bool wrResult = aManager->CommandBuilder().PushImage(aItem, container,
+                                                         aBuilder, aResources,
+                                                         aSc, destRect);
+      result = (wrResult)? ImgDrawResult::SUCCESS: ImgDrawResult::NOT_READY;
+    }
+
+    // If we could not draw the icon, just draw some graffiti in the mean time.
+    if (result == ImgDrawResult::NOT_READY) {
+      /*ColorPattern color(ToDeviceColor(Color(1.f, 0.f, 0.f, 1.f)));
+
+      nscoord iconXPos = flushRight ? inner.XMost() - size : inner.x;
+
+      // stroked rect:
+      nsRect rect(iconXPos, inner.y, size, size);
+      Rect devPxRect =
+        ToRect(nsLayoutUtils::RectToGfxRect(rect, PresContext()->AppUnitsPerDevPixel()));
+      drawTarget->StrokeRect(devPxRect, color);
+
+      // filled circle in bottom right quadrant of stroked rect:
+      nscoord twoPX = nsPresContext::CSSPixelsToAppUnits(2);
+      rect = nsRect(iconXPos + size/2, inner.y + size/2,
+                    size/2 - twoPX, size/2 - twoPX);
+      devPxRect =
+        ToRect(nsLayoutUtils::RectToGfxRect(rect, PresContext()->AppUnitsPerDevPixel()));
+      RefPtr<PathBuilder> builder = drawTarget->CreatePathBuilder();
+      AppendEllipseToPath(builder, devPxRect.Center(), devPxRect.Size());
+      RefPtr<Path> ellipse = builder->Finish();
+      drawTarget->Fill(ellipse, color);*/
+    }
+
+    // Reduce the inner rect by the width of the icon, and leave an
+    // additional ICON_PADDING pixels for padding
+    int32_t paddedIconSize =
+      nsPresContext::CSSPixelsToAppUnits(ICON_SIZE + ICON_PADDING);
+    if (wm.IsVertical()) {
+      inner.y += paddedIconSize;
+      inner.height -= paddedIconSize;
+    } else {
+      if (!flushRight) {
+        inner.x += paddedIconSize;
+      }
+      inner.width -= paddedIconSize;
+    }
+  }
+
+  // Draw text
+  //RenderToContext(captureCtx, aDisplayListBuilder, true);
+  if (!inner.IsEmpty()) {
+    RefPtr<TextDrawTarget> textDrawer = new TextDrawTarget(aBuilder, aSc,
+                                                           aManager, aItem,
+                                                           inner);
+    RefPtr<gfxContext> captureCtx = gfxContext::CreateOrNull(textDrawer);
+
+    nsIContent* content = GetContent();
+    if (content) {
+      nsAutoString altText;
+      nsCSSFrameConstructor::GetAlternateTextFor(content->AsElement(),
+                                                 content->NodeInfo()->NameAtom(),
+                                                 altText);
+      DisplayAltText(PresContext(), *captureCtx.get(), altText, inner);
+    }
+  }
+
+  aBuilder.PopClip();
+  return ImgDrawResult::SUCCESS;
+
 }
 
 #ifdef DEBUG
