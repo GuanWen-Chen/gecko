@@ -68,7 +68,7 @@ public:
     // Add 1 pixel of dirty area around clip rect to allow us to paint
     // antialiased pixels beyond the measured text extents.
     layoutClipRect.Inflate(1);
-    mClipRect = aSc.ToRelativeLayoutRect(layoutClipRect);
+    mClipStack.AppendElement(layoutClipRect);
 
     mBackfaceVisible = !aItem->BackfaceIsHidden();
 
@@ -135,27 +135,27 @@ public:
     wr::GlyphOptions glyphOptions;
     glyphOptions.render_mode = wr::ToFontRenderMode(aOptions.mAntialiasMode, GetPermitSubpixelAA());
 
-    mManager->WrBridge()->PushGlyphs(mBuilder, glyphs, aFont,
-                                     color, mSc, mBoundsRect, mClipRect,
-                                     mBackfaceVisible, &glyphOptions);
+    mManager->WrBridge()->PushGlyphs(mBuilder, glyphs, aFont, color, mSc,
+                                     mBoundsRect, ClipRect(), mBackfaceVisible,
+                                     &glyphOptions);
   }
 
   void
   PushClipRect(const Rect &aRect) override {
-    auto rect = mSc.ToRelativeLayoutRect(LayoutDeviceRect::FromUnknownRect(aRect));
-    auto clipId = mBuilder.DefineClip(Nothing(), Nothing(), rect);
-    mBuilder.PushClip(clipId);
+    LayoutDeviceRect rect = LayoutDeviceRect::FromUnknownRect(aRect);
+    rect = rect.Intersect(mClipStack.LastElement());
+    mClipStack.AppendElement(rect);
   }
 
   void
   PopClip() override {
-    mBuilder.PopClip();
+    mClipStack.RemoveElementAt(mClipStack.Length() - 1);
   }
 
   void
   AppendShadow(const wr::Shadow& aShadow)
   {
-    mBuilder.PushShadow(mBoundsRect, mClipRect, mBackfaceVisible, aShadow);
+    mBuilder.PushShadow(mBoundsRect, ClipRect(), mBackfaceVisible, aShadow);
     mHasShadows = true;
   }
 
@@ -173,7 +173,7 @@ public:
   {
     auto rect = wr::ToLayoutRect(aRect);
     auto color = wr::ToColorF(aColor);
-    mBuilder.PushRect(rect, mClipRect, mBackfaceVisible, color);
+    mBuilder.PushRect(rect, ClipRect(), mBackfaceVisible, color);
   }
 
 
@@ -235,7 +235,7 @@ public:
         MOZ_CRASH("TextDrawTarget received unsupported line style");
     }
 
-    mBuilder.PushLine(mClipRect, mBackfaceVisible, decoration);
+    mBuilder.PushLine(ClipRect(), mBackfaceVisible, decoration);
   }
 
   // Seperated out from AppendDecoration because Wavy Lines are completely
@@ -258,10 +258,14 @@ public:
       : wr::LineOrientation::Horizontal;
     decoration.style = wr::LineStyle::Wavy;
 
-    mBuilder.PushLine(mClipRect, mBackfaceVisible, decoration);
+    mBuilder.PushLine(ClipRect(), mBackfaceVisible, decoration);
   }
 
 private:
+  wr::LayerRect ClipRect()
+  {
+    return mSc.ToRelativeLayoutRect(mClipStack.LastElement());
+  }
   // Whether anything unsupported was encountered. Currently:
   //
   // * Synthetic bold/italics
@@ -283,7 +287,7 @@ private:
 
   // Computed facts
   wr::LayerRect mBoundsRect;
-  wr::LayerRect mClipRect;
+  nsTArray<LayoutDeviceRect> mClipStack;
   bool mBackfaceVisible;
 
   // The rest of this is dummy implementations of DrawTarget's API
