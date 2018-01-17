@@ -1347,9 +1347,20 @@ public:
     uint32_t flags = imgIContainer::FLAG_SYNC_DECODE;
 
     nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
+/*       auto borderDrawer = std::bind(&nsCSSRendering::PaintBorderWithStyleBorder,
+                                     f->PresContext(), *aCtx, f, std::placeholders::_2, 
+                                     std::placeholders::_2, std::placeholders::_1,
+                                     f->StyleContext(),
+                                     PaintBorderFlags::SYNC_DECODE_IMAGES);*/
+    auto borderDrawer = std::bind(nsCSSRendering::foo,std::placeholders::_1);
+
     ImgDrawResult result =
-      f->DisplayAltFeedback(*aCtx,
+/*      f->DisplayAltFeedback(*aCtx,
                             mVisibleRect,
+                            ToReferenceFrame(),
+                            flags);*/
+
+      f->DisplayAltFeedback2(borderDrawer,
                             ToReferenceFrame(),
                             flags);
 
@@ -1369,16 +1380,144 @@ public:
 
     uint32_t flags = imgIContainer::FLAG_ASYNC_NOTIFY;
     nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
+/*       auto borderDrawer = std::bind(nsCSSRendering::CreateWebRenderCommandsForBorderWithStyleBorder, this, f, std::placeholders::_2, aBuilder, aResource, aSc, aManager, aDisplayBuilder, std::placeholders::_1);*/
+
+    auto borderDrawer = std::bind(nsCSSRendering::foo,std::placeholders::_1);
     ImgDrawResult result =
-       f->DisplayAltFeedbackWithoutLayer(this, aBuilder, aResources, aSc,
-                                         aManager, aDisplayListBuilder,
+       f->DisplayAltFeedback2(borderDrawer,
                                          ToReferenceFrame(), flags);
 
+
+/*       f->DisplayAltFeedbackWithoutLayer(this, aBuilder, aResources, aSc,
+                                         aManager, aDisplayListBuilder,
+                                         ToReferenceFrame(), flags);*/
     return (result == ImgDrawResult::SUCCESS);
   }
 
   NS_DISPLAY_DECL_NAME("AltFeedback", TYPE_ALT_FEEDBACK)
 };
+
+ImgDrawResult
+nsImageFrame::DisplayAltFeedback2(/*std::function<ImgDrawResult(const nsStyleBorder&, const nsRect&, const nsRect&)>&*/std::function<bool(int)> aBorderDrawer,
+                                  nsPoint aPt,
+                                  uint32_t aFlags)
+{
+  // We should definitely have a gIconLoad here.
+  MOZ_ASSERT(gIconLoad, "How did we succeed in Init then?");
+
+  // Whether we draw the broken or loading icon.
+  bool isLoading = IMAGE_OK(GetContent()->AsElement()->State(), true);
+
+  // Calculate the inner area
+  nsRect inner = GetInnerArea() + aPt;
+
+  // Display a recessed one pixel border
+  nscoord borderEdgeWidth = nsPresContext::CSSPixelsToAppUnits(ALT_BORDER_WIDTH);
+
+  // if inner area is empty, then make it big enough for at least the icon
+  if (inner.IsEmpty()){
+    inner.SizeTo(2*(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH)),
+                 2*(nsPresContext::CSSPixelsToAppUnits(ICON_SIZE+ICON_PADDING+ALT_BORDER_WIDTH)));
+  }
+
+  // Make sure we have enough room to actually render the border within
+  // our frame bounds
+  if ((inner.width < 2 * borderEdgeWidth) || (inner.height < 2 * borderEdgeWidth)) {
+    return ImgDrawResult::SUCCESS;
+  }
+
+  // Paint the border
+  if (!isLoading || gIconLoad->mPrefShowLoadingPlaceholder) {
+    nsRecessedBorder recessedBorder(borderEdgeWidth, PresContext());
+
+    // Assert that we're not drawing a border-image here; if we were, we
+    // couldn't ignore the ImgDrawResult that PaintBorderWithStyleBorder returns.
+    MOZ_ASSERT(recessedBorder.mBorderImageSource.GetType() == eStyleImageType_Null);
+
+    // TODO: Draw border
+    //aBorderDrawer(recessedBorder, inner);
+    aBorderDrawer(10);
+  }
+
+  // Adjust the inner rect to account for the one pixel recessed border,
+  // and a six pixel padding on each edge
+  inner.Deflate(nsPresContext::CSSPixelsToAppUnits(ICON_PADDING+ALT_BORDER_WIDTH),
+                nsPresContext::CSSPixelsToAppUnits(ICON_PADDING+ALT_BORDER_WIDTH));
+  if (inner.IsEmpty()) {
+    return ImgDrawResult::SUCCESS;
+  }
+
+  // TODO: Clip
+
+  ImgDrawResult result = ImgDrawResult::NOT_READY;
+
+  // Check if we should display image placeholders
+  if (!gIconLoad->mPrefShowPlaceholders ||
+      (isLoading && !gIconLoad->mPrefShowLoadingPlaceholder)) {
+    result = ImgDrawResult::SUCCESS;
+  } else {
+    nscoord size = nsPresContext::CSSPixelsToAppUnits(ICON_SIZE);
+
+    imgIRequest* request = isLoading
+                              ? nsImageFrame::gIconLoad->mLoadingImage
+                              : nsImageFrame::gIconLoad->mBrokenImage;
+
+    // If we weren't previously displaying an icon, register ourselves
+    // as an observer for load and animation updates and flag that we're
+    // doing so now.
+    if (request && !mDisplayingIcon) {
+      gIconLoad->AddIconObserver(this);
+      mDisplayingIcon = true;
+    }
+
+    WritingMode wm = GetWritingMode();
+    bool flushRight =
+      (!wm.IsVertical() && !wm.IsBidiLTR()) || wm.IsVerticalRL();
+
+    // If the icon in question is loaded, draw it.
+    uint32_t imageStatus = 0;
+    if (request)
+      request->GetImageStatus(&imageStatus);
+    if (imageStatus & imgIRequest::STATUS_LOAD_COMPLETE &&
+        !(imageStatus & imgIRequest::STATUS_ERROR)) {
+      nsCOMPtr<imgIContainer> imgCon;
+      request->GetImage(getter_AddRefs(imgCon));
+      MOZ_ASSERT(imgCon, "Load complete, but no image container?");
+      nsRect dest(flushRight ? inner.XMost() - size : inner.x,
+                  inner.y, size, size);
+      // TODO: Draw image
+    }
+
+    // If we could not draw the icon, just draw some graffiti in the mean time.
+    if (result == ImgDrawResult::NOT_READY) {
+      ColorPattern color(ToDeviceColor(Color(1.f, 0.f, 0.f, 1.f)));
+      // Draw image2
+    }
+
+    // Reduce the inner rect by the width of the icon, and leave an
+    // additional ICON_PADDING pixels for padding
+    int32_t paddedIconSize =
+      nsPresContext::CSSPixelsToAppUnits(ICON_SIZE + ICON_PADDING);
+    if (wm.IsVertical()) {
+      inner.y += paddedIconSize;
+      inner.height -= paddedIconSize;
+    } else {
+      if (!flushRight) {
+        inner.x += paddedIconSize;
+      }
+      inner.width -= paddedIconSize;
+    }
+  }
+
+  // If there's still room, display the alt-text
+  if (!inner.IsEmpty()) {
+    // Draw text
+  }
+
+  //aRenderingContext.Restore();
+  return result;
+}
+
 
 ImgDrawResult
 nsImageFrame::DisplayAltFeedback(gfxContext& aRenderingContext,

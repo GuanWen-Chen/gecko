@@ -9,6 +9,8 @@
 #ifndef nsImageFrame_h___
 #define nsImageFrame_h___
 
+#include <functional>
+
 #include "nsAtomicContainerFrame.h"
 #include "nsIIOService.h"
 #include "nsIObserver.h"
@@ -161,6 +163,9 @@ public:
                                                nsPoint aPt,
                                                uint32_t aFlags);
 
+  ImgDrawResult DisplayAltFeedback2(/*std::function<ImgDrawResult(const nsStyleBorder&, const nsRect&, const nsRect&)>&*/std::function<bool(int)> aBorderDrawer,
+                                    nsPoint aPt,
+                                uint32_t aFlags);
 
   nsRect GetInnerArea() const;
 

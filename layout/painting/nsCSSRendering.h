@@ -185,7 +185,7 @@ struct nsCSSRendering {
                                                nsStyleContext* aStyleContext,
                                                mozilla::PaintBorderFlags aFlags,
                                                Sides aSkipSides = Sides());
-
+  static bool foo(int i) {return (i>5)?false:true;}
   static mozilla::Maybe<nsCSSBorderRenderer>
   CreateBorderRenderer(nsPresContext* aPresContext,
                        DrawTarget* aDrawTarget,
