@@ -1470,23 +1470,27 @@ detect-indent@^4.0.0:
   dependencies:
     repeating "^2.0.0"
 
-devtools-config@=0.0.12, devtools-config@^0.0.12:
+devtools-config@=0.0.12:
   version "0.0.12"
   resolved "https://registry.yarnpkg.com/devtools-config/-/devtools-config-0.0.12.tgz#4094e62efec23cdc31bd0e6d89e15f7c51d6a7e6"
 
-devtools-connection@^0.0.4:
-  version "0.0.4"
-  resolved "https://registry.yarnpkg.com/devtools-connection/-/devtools-connection-0.0.4.tgz#96174ad89dcfd34604829eee4cb4cb2673242ebf"
+devtools-config@^0.0.15:
+  version "0.0.15"
+  resolved "https://registry.yarnpkg.com/devtools-config/-/devtools-config-0.0.15.tgz#1fbe75be3f4dc1159603927fc1dfa64d1d9f1202"
 
-devtools-contextmenu@=0.0.3:
+devtools-connection@^0.0.6:
+  version "0.0.6"
+  resolved "https://registry.yarnpkg.com/devtools-connection/-/devtools-connection-0.0.6.tgz#06431a8e4882033409a9d90c2720832cb51b86eb"
+
+devtools-contextmenu@=0.0.3, devtools-contextmenu@^0.0.3:
   version "0.0.3"
   resolved "https://registry.yarnpkg.com/devtools-contextmenu/-/devtools-contextmenu-0.0.3.tgz#be5183abcaeb728b6c5e2fe60fa9f0525fc959e0"
   dependencies:
     devtools-modules "^0.0.28"
 
-devtools-launchpad@=0.0.75:
-  version "0.0.75"
-  resolved "https://registry.yarnpkg.com/devtools-launchpad/-/devtools-launchpad-0.0.75.tgz#1ce79b4ad65ceee14cfb8e7b0e8b98710c4016bc"
+devtools-launchpad@=0.0.88:
+  version "0.0.88"
+  resolved "https://registry.yarnpkg.com/devtools-launchpad/-/devtools-launchpad-0.0.88.tgz#c730e82da9cb78ad7d8c73ba8c50c4002ab0145d"
   dependencies:
     amd-loader "0.0.5"
     autoprefixer "^6.7.6"
@@ -1512,11 +1516,12 @@ devtools-launchpad@=0.0.75:
     classnames "^2.2.5"
     co "=4.6.0"
     css-loader "^0.26.1"
-    devtools-config "^0.0.12"
-    devtools-connection "^0.0.4"
-    devtools-modules "^0.0.27"
+    devtools-config "^0.0.15"
+    devtools-connection "^0.0.6"
+    devtools-contextmenu "^0.0.3"
+    devtools-modules "^0.0.28"
     devtools-sprintf-js "^1.0.3"
-    devtools-utils "^0.0.2"
+    devtools-utils "^0.0.3"
     eslint "^3.12.0"
     eslint-plugin-babel "^3.3.0"
     eslint-plugin-flowtype "^2.20.0"
@@ -1532,7 +1537,6 @@ devtools-launchpad@=0.0.75:
     minimist "^1.2.0"
     mustache "^2.2.1"
     node-static "^0.7.7"
-    parse-yarn-lock "^1.0.2"
     postcss "^5.2.12"
     postcss-bidirection "=2.3.0"
     postcss-loader "^1.2.2"
@@ -1555,7 +1559,7 @@ devtools-launchpad@=0.0.75:
     webpack-hot-middleware "^2.12.0"
     ws "^1.0.1"
 
-devtools-modules@=0.0.27, devtools-modules@^0.0.27:
+devtools-modules@=0.0.27:
   version "0.0.27"
   resolved "https://registry.yarnpkg.com/devtools-modules/-/devtools-modules-0.0.27.tgz#55ba9cc4fab4eb37335b343a94f26ded9b360e81"
 
@@ -1573,9 +1577,9 @@ devtools-sprintf-js@^1.0.3:
   version "1.0.3"
   resolved "https://registry.yarnpkg.com/devtools-sprintf-js/-/devtools-sprintf-js-1.0.3.tgz#c2aa3c39d4047525e60410325c86770620281b87"
 
-devtools-utils@^0.0.2:
-  version "0.0.2"
-  resolved "https://registry.yarnpkg.com/devtools-utils/-/devtools-utils-0.0.2.tgz#8e711f276920f75785cdd9ae061d7d45752c6d44"
+devtools-utils@^0.0.3:
+  version "0.0.3"
+  resolved "https://registry.yarnpkg.com/devtools-utils/-/devtools-utils-0.0.3.tgz#b49973c148532d530212d77ba390f0be5f4343af"
   dependencies:
     babel-plugin-transform-flow-strip-types "^6.22.0"
     babel-preset-stage-3 "^6.22.0"
@@ -3193,8 +3197,8 @@ lodash.uniq@^4.5.0:
   resolved "https://registry.yarnpkg.com/lodash.uniq/-/lodash.uniq-4.5.0.tgz#d0225373aeb652adc1bc82e4945339a842754773"
 
 lodash@^4.0.0, lodash@^4.14.0, lodash@^4.15.0, lodash@^4.2.0, lodash@^4.2.1, lodash@^4.3.0:
-  version "4.17.4"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.4.tgz#78203a4d1c328ae1d86dca6460e369b57f4055ae"
+  version "4.17.19"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.19.tgz#e48ddedbe30b3321783c5b4301fbd353bc1e4a4b"
 
 longest@^1.0.1:
   version "1.0.1"
@@ -3602,13 +3606,6 @@ parse-json@^2.1.0, parse-json@^2.2.0:
   resolved "https://registry.yarnpkg.com/parse-json/-/parse-json-2.2.0.tgz#f480f40434ef80741f8469099f8dea18f55a4dc9"
   dependencies:
     error-ex "^1.2.0"
-
-parse-yarn-lock@^1.0.2:
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/parse-yarn-lock/-/parse-yarn-lock-1.0.2.tgz#39ef8b8f78bebdcad34bccd742d50ceed8cb25ec"
-  dependencies:
-    run-waterfall "^1.1.3"
-    which "^1.2.12"
 
 parse5@^1.5.1:
   version "1.5.1"
@@ -4407,10 +4404,6 @@ run-async@^0.1.0:
 run-parallel@^1.1.4:
   version "1.1.6"
   resolved "https://registry.yarnpkg.com/run-parallel/-/run-parallel-1.1.6.tgz#29003c9a2163e01e2d2dfc90575f2c6c1d61a039"
-
-run-waterfall@^1.1.3:
-  version "1.1.3"
-  resolved "https://registry.yarnpkg.com/run-waterfall/-/run-waterfall-1.1.3.tgz#d96fc0f5361bcbdbd438529dc8a4b42fc6761123"
 
 rx-lite@^3.1.2:
   version "3.1.2"
